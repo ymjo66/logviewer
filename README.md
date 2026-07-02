@@ -1,6 +1,6 @@
 # X DRONE GCS (XDroneGCS)
 
-QGroundControl(QGC)을 기반으로 **백엔드(MAVLink·영상·지도) 기능은 그대로 두고, 비행 화면 UI와 브랜딩을 X DRONE 디자인으로 교체**한 커스텀 지상관제국(GCS) 앱입니다.
+QGroundControl(QGC)을 기반으로 **비행 화면 UI와 브랜딩을 X DRONE 디자인으로 교체**한 커스텀 지상관제국(GCS) 앱입니다.
 
 - 기반: `mavlink/qgroundcontrol` (master fork)
 - 실행 파일명: `XDroneGCS.exe`
