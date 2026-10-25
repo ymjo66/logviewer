@@ -21,19 +21,21 @@ ArduPilot DataFlash 로그(`.bin` / `.log`)를 여러 개 한꺼번에 열어 �
 
 버전 번호는 **릴리즈 태그 하나로만** 관리합니다. 빌드할 때 GitHub Actions가 태그의 버전을 `version.py`에 새겨 넣으므로, 코드에서 버전을 따로 올릴 필요가 없습니다.
 
+첫 릴리즈는 `1.0.0`으로 발행하고, 이후 `1.0.1`, `1.1.0`처럼 올립니다. 자동 업데이트는 두 번째 릴리즈부터 동작합니다(첫 릴리즈 exe는 사용자가 한 번 직접 받아야 합니다).
+
 ### 방법 A — Actions에서 실행 (권장)
 
 1. 변경 사항을 `main`에 머지합니다.
 2. 저장소 **Actions** 탭 → **Build & Release** → **Run workflow**
 3. 입력
-   - **version**: 새 버전 (예: `2.3.0`). 지금 버전보다 높아야 사용자 앱이 업데이트로 인식합니다.
+   - **version**: 새 버전 (예: `1.0.1`). 지금 버전보다 높아야 사용자 앱이 업데이트로 인식합니다.
    - **notes**: 업데이트 내용. 앱의 업데이트 안내 창에 그대로 표시됩니다. 비워 두면 변경 내역이 자동으로 작성됩니다.
-4. 몇 분 뒤 `logviewer-v2.3.0` 릴리즈가 만들어지고 `X_Drone_Log_Viewer.exe`가 첨부됩니다.
+4. 몇 분 뒤 `logviewer-v1.0.1` 릴리즈가 만들어지고 `X_Drone_Log_Viewer.exe`가 첨부됩니다.
 
 ### 방법 B — Releases 화면에서 직접 만들기
 
 1. **Releases** → **Draft a new release**
-2. 태그: `logviewer-v2.3.0` 형식으로 새로 만듭니다. (**`logviewer-v` 접두사 필수**)
+2. 태그: `logviewer-v1.0.1` 형식으로 새로 만듭니다. (**`logviewer-v` 접두사 필수**)
 3. 본문에 업데이트 내용을 적습니다. (앱 안내 창에 표시됨)
 4. **Set as the latest release** 체크를 **해제**합니다. (아래 "태그 규칙" 참고)
 5. **Publish release** → Actions가 exe를 빌드해 이 릴리즈에 자동으로 첨부합니다. (exe를 직접 올릴 필요 없음)
