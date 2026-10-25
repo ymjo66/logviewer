@@ -152,7 +152,7 @@
         <div class="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-xs">
           <span id="scenarioBarLabel" class="px-2.5 py-1 text-slate-400 font-medium hidden md:inline">빠른 파형 뷰 전환:</span>
           <button id="btnSampleNormal" type="button" class="px-2.5 py-1.5 rounded-md font-medium transition bg-sky-600 text-white shadow-sm">
-            1. 정상 임무비행 (쿼드)
+            1. 정상 임무비행 <span id="frameTypeLabel"></span>
           </button>
           <button id="btnSampleVibe" type="button" class="px-2.5 py-1.5 rounded-md font-medium transition text-slate-300 hover:text-white hover:bg-slate-800">
             2. 진동·전압강하 경고
@@ -1292,6 +1292,39 @@
       return rows[lo] || {};
     }
 
+    // ArduCopter FRAME_CLASS values and the frame names printed in the boot "Frame: HEXA/X" message
+    const FRAME_CLASS_NAMES = {
+      1: '쿼드', 2: '헥사', 3: '옥타', 4: '옥타쿼드', 5: 'Y6', 6: '헬리', 7: '트라이', 8: '싱글콥터',
+      9: '코액스콥터', 10: '바이콥터', 11: '듀얼 헬리', 12: '도데카헥사', 13: '헬리쿼드', 14: '데카',
+      15: '스크립팅 매트릭스', 16: '6DOF', 17: '동적 매트릭스'
+    };
+    const FRAME_MSG_CLASSES = {
+      QUAD: 1, HEXA: 2, OCTA: 3, OCTAQUAD: 4, OCTA_QUAD: 4, Y6: 5, HELI: 6, TRI: 7, SINGLE: 8, COAX: 9,
+      BICOPTER: 10, HELI_DUAL: 11, DODECAHEXA: 12, DODECA_HEXA: 12, HELI_QUAD: 13, DECA: 14, SCRIPTING: 15, '6DOF': 16
+    };
+
+    // Frame type read from the log itself: the boot message (what the firmware actually ran) first,
+    // then the FRAME_CLASS parameter (Q_FRAME_CLASS for QuadPlane). Returns null if the log has neither.
+    function detectFrameType(msgRows, parmRows) {
+      for (const m of msgRows) {
+        const match = /Frame:\s*([A-Z0-9_]+)(?:\/(\S+))?/i.exec(m.Message || '');
+        const frameClass = match && FRAME_MSG_CLASSES[match[1].toUpperCase()];
+        if (frameClass) {
+          return { name: FRAME_CLASS_NAMES[frameClass], source: `부팅 메시지 "${match[0].trim()}"` };
+        }
+      }
+      for (const paramName of ['FRAME_CLASS', 'Q_FRAME_CLASS']) {
+        let value = null;
+        for (const p of parmRows) {
+          if (p.Name === paramName) value = Math.round(Number(p.Value));
+        }
+        if (FRAME_CLASS_NAMES[value]) {
+          return { name: FRAME_CLASS_NAMES[value], source: `파라미터 ${paramName} = ${value}` };
+        }
+      }
+      return null;
+    }
+
     // Format seconds difference as :HH:MM:SS (e.g. :00:11:05)
     function formatColonHHMMSS(totalSecondsInt) {
       const s = Math.max(0, Math.round(totalSecondsInt));
@@ -2064,6 +2097,7 @@
         if (/ArduCopter|ArduPlane|ArduRover|QuadPlane/i.test(txt)) firmwareStr = txt;
         if (/Cube|Pixhawk|Matek|Kakute|Durandal/i.test(txt)) hardwareStr = txt.split(' ')[0];
       }
+      const frameInfo = detectFrameType(msgRows, parmRows);
 
       // ========================================================================
       // 2. COLLECT ALL SENSOR ERRORS & FAILSAFES FOR GRAPH MARKERS
@@ -2401,6 +2435,7 @@
         dateStr: secToDateKstStr(takeoffSec),
         firmwareStr,
         hardwareStr,
+        frameInfo,
         minSec,
         maxSec,
         armSec,
@@ -3309,6 +3344,7 @@
         loadedSec.classList.add('hidden');
         clearBtn.classList.add('hidden');
         clearBtn.classList.remove('inline-flex');
+        renderFrameTypeLabel(undefined);
         return;
       }
 
@@ -3393,6 +3429,23 @@
       });
     }
 
+    // Quick view button 1 shows the active log's frame type instead of a fixed "(쿼드)".
+    // frameInfo: undefined = no log loaded, null = log has no frame info.
+    function renderFrameTypeLabel(frameInfo) {
+      const label = document.getElementById('frameTypeLabel');
+      const btn = document.getElementById('btnSampleNormal');
+      if (frameInfo === undefined) {
+        label.textContent = '';
+        btn.title = '로그를 열면 기체 형태(쿼드/헥사 등)를 자동으로 판별해 표시합니다.';
+      } else if (frameInfo) {
+        label.textContent = `(${frameInfo.name})`;
+        btn.title = `기체 형태 판별 근거: ${frameInfo.source}`;
+      } else {
+        label.textContent = '(기체 미확인)';
+        btn.title = '로그에 Frame 메시지나 FRAME_CLASS 파라미터가 없어 기체 형태를 판별하지 못했습니다.';
+      }
+    }
+
     function selectLogByIndex(idx) {
       if (idx < 0 || idx >= appState.logs.length) return;
       stopPlayback();
@@ -3414,6 +3467,7 @@
         `(${(p.byteLength / 1024).toFixed(1)} KB · ${p.fmtList.length}개 FMT 스키마 · ${p.totalPackets.toLocaleString()} 패킷)`;
       document.getElementById('firmwareDisplay').textContent =
         `${a.firmwareStr}${a.hardwareStr ? ' · ' + a.hardwareStr : ''}`;
+      renderFrameTypeLabel(a.frameInfo);
       document.getElementById('sourceModeBadge').textContent =
         `활성 로그 #${appState.activeLogIndex + 1} / ${appState.logs.length}`;
 
