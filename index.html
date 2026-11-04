@@ -952,13 +952,6 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
             3. 자기장·GPS 글리치
           </button>
         </div>
-
-        <label for="fileInput" class="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-          </svg>
-          <span>.bin / .log 다중 파일 열기</span>
-        </label>
         <input id="fileInput" type="file" multiple accept=".bin,.log,.BIN,.LOG" class="hidden" />
 
         <button id="btnClearAllLogs" type="button" class="hidden items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium transition" title="첨부된 모든 로그 목록을 초기화합니다">
@@ -978,13 +971,6 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
           </svg>
           <span>진단 기준 설정</span>
-        </button>
-
-        <button id="btnCopyLogbook" type="button" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
-          </svg>
-          <span>비행일지 요약 복사</span>
         </button>
       </div>
     </div>
@@ -1017,11 +1003,8 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
           <h2 class="text-lg sm:text-xl font-bold text-white">분석할 드론 로그 파일(.bin / .log)을 드래그 앤 드롭하세요</h2>
         </div>
         <div class="pt-2 flex flex-wrap items-center justify-center gap-3">
-          <label for="fileInput" class="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold shadow-lg shadow-sky-600/25 transition">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-            </svg>
-            <span>PC에서 .bin / .log 파일 선택 (다중 선택 가능)</span>
+          <label for="fileInput" class="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold">
+            PC에서 .bin / .log 파일 선택 (다중 선택 가능)
           </label>
         </div>
       </div>
@@ -3378,6 +3361,7 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
       id:'manualAxisLimits',
       beforeUpdate(chart) {
         const group = chart.canvas.id === 'mainTelemetryChart' ? 'main' : 'secondary';
+        if (group === 'main' && appState.customFields.length) return;
         for (const axis of ['y','y1']) {
           const limits = appState.axisLimits?.[group]?.[axis];
           if (limits && chart.options.scales[axis]) {
@@ -3458,9 +3442,59 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
       applyZoomRange(curMin + shift, curMax + shift);
     }
 
+    function getPannedTimeWindow(startMin, startMax, deltaSeconds, logMin, logMax) {
+      const span = Math.min(startMax - startMin, logMax - logMin);
+      const minSec = Math.max(logMin, Math.min(logMax - span, startMin - deltaSeconds));
+      return { minSec, maxSec: minSec + span };
+    }
+
     function bindInteractiveChartZoom(canvasEl, getChartInstance) {
       if (!canvasEl || canvasEl._zoomBound) return;
       canvasEl._zoomBound = true;
+      canvasEl.title = '왼쪽 드래그: 구간 확대 · 휠: 확대/축소 · 오른쪽 드래그: 시간축 이동 · 더블클릭: 전체 보기';
+      let pan = null;
+      let panFrame = null;
+      let lastPanX = null;
+      function applyPan() {
+        panFrame = null;
+        if (!pan || appState.analysis !== pan.analysis) return;
+        const range = getPannedTimeWindow(pan.min, pan.max,
+          (lastPanX - pan.clientX) * pan.secondsPerPixel, pan.analysis.minSec, pan.analysis.maxSec);
+        applyZoomRange(range.minSec, range.maxSec);
+      }
+      function endPan() {
+        if (panFrame !== null) { cancelAnimationFrame(panFrame); applyPan(); }
+        pan = null;
+        canvasEl.style.cursor = '';
+      }
+      canvasEl.addEventListener('contextmenu', e => e.preventDefault());
+      canvasEl.addEventListener('pointerdown', e => {
+        if (e.button !== 2) return;
+        const chart = getChartInstance();
+        const analysis = appState.analysis;
+        if (!chart?.chartArea || !analysis) return;
+        const rect = canvasEl.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * chart.width / rect.width;
+        if (x < chart.chartArea.left || x > chart.chartArea.right) return;
+        e.preventDefault();
+        pan = { analysis, clientX:e.clientX,
+          min:appState.zoomWindow?.minSec ?? analysis.minSec,
+          max:appState.zoomWindow?.maxSec ?? analysis.maxSec,
+          secondsPerPixel:(chart.scales.x.max-chart.scales.x.min) /
+            ((chart.chartArea.right-chart.chartArea.left)*rect.width/chart.width) };
+        lastPanX = e.clientX;
+        canvasEl.setPointerCapture(e.pointerId);
+        canvasEl.style.cursor = 'grabbing';
+      });
+      canvasEl.addEventListener('pointermove', e => {
+        if (!pan) return;
+        if (!(e.buttons & 2)) { endPan(); return; }
+        e.preventDefault();
+        lastPanX = e.clientX;
+        if (panFrame === null) panFrame = requestAnimationFrame(applyPan);
+      });
+      for (const event of ['pointerup','pointercancel','lostpointercapture']) canvasEl.addEventListener(event,endPan);
+      window.addEventListener('blur',endPan);
 
       canvasEl.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
@@ -3630,6 +3664,21 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
       }
     }
 
+    function customFieldAxisId(index) { return index === 0 ? 'y' : `y${index}`; }
+
+    function buildCustomFieldScales(fields, palette, limits = {}) {
+      return Object.fromEntries(fields.map((field,index) => {
+        const color = palette[index % palette.length];
+        return [customFieldAxisId(index), {
+          type:'linear', position:index % 2 === 0 ? 'left' : 'right', display:true,
+          title:{display:true,text:field,color,font:{size:10}},
+          ticks:{color,font:{family:'JetBrains Mono',size:10}},
+          border:{color}, grid:{drawOnChartArea:index === 0,color:'rgba(149,163,184,0.18)'},
+          min:limits[field]?.min, max:limits[field]?.max
+        }];
+      }));
+    }
+
     function renderTelemetryCharts() {
       const a = appState.analysis;
       if (!a) return;
@@ -3656,14 +3705,15 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
           for (const [instance, instanceRows] of groups) ds.push({
             label: instanceKey ? mf + ' [' + instanceKey + '=' + instance + ']' : mf,
             data: instanceRows.map(r => ({x:r.TimeUS/1e6, y:typeof r[fName] === 'number' ? r[fName] : null})),
-            borderColor: palette[ds.length % palette.length],
+            borderColor: palette[idx % palette.length],
             borderWidth:1.8, pointRadius:0,
-            yAxisID: idx === 1 ? 'y1' : 'y'
+            yAxisID: customFieldAxisId(idx)
           });
         });
         cfg = {
           title: `사용자 지정 필드 플롯 (${appState.customFields.join(', ')})`,
           datasets: ds,
+          customAxes:buildCustomFieldScales(appState.customFields,palette,appState.customAxisLimits),
           yLabel: appState.customFields[0] || 'Value',
           y1Label: appState.customFields[1] || null
         };
@@ -3672,6 +3722,7 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
       }
 
       document.getElementById('chartTitleLabel').textContent = cfg.title;
+      renderCustomAxisControls(appState.customFields);
 
       normalizePlotDatasets(cfg.datasets);
       const commonXScale = {
@@ -3742,7 +3793,8 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
               title: { display: !!cfg.y1Label, text: cfg.y1Label || '', color: '#c5cfdd', font: { size: 10 } },
               grid: { drawOnChartArea: false },
               ticks: { color: '#b5bfcc', font: { family: 'JetBrains Mono', size: 10 } }
-            }
+            },
+            ...(cfg.customAxes || {})
           }
         }
       });
@@ -5106,7 +5158,6 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
       });
       document.getElementById('parmSearchInput').addEventListener('input', () => renderParmAndFmtTables());
 
-      document.getElementById('btnCopyLogbook').addEventListener('click', copyFlightLogbookSummary);
       document.getElementById('btnCopyLogbookInline').addEventListener('click', copyFlightLogbookSummary);
       document.getElementById('btnExportCsv').addEventListener('click', exportCurrentTimelineCsv);
 
@@ -5391,6 +5442,7 @@ function setupWorkbench() {
   document.getElementById('chartPane').prepend(controls);
   const form = controls.querySelector('form');
   try { appState.axisLimits = JSON.parse(localStorage.getItem('xdlv-axis-limits')) || {}; } catch { appState.axisLimits = {}; }
+  try { appState.customAxisLimits = JSON.parse(localStorage.getItem('xdlv-custom-axis-limits')) || {}; } catch { appState.customAxisLimits = {}; }
   for (const group of ['main','secondary']) for (const axis of ['y','y1']) for (const side of ['min','max']) {
     form.elements[`${group}_${axis}_${side}`].value = appState.axisLimits[group]?.[axis]?.[side] ?? '';
   }
@@ -5412,19 +5464,55 @@ function setupWorkbench() {
     if (!a || !valid(min,max) || max <= a.minSec || min >= a.maxSec) {
       document.getElementById('axisError').textContent = '로그를 열고 기록 범위 안의 시작·종료 시간을 입력하세요.'; return;
     }
+    const customLimits = {...appState.customAxisLimits};
+    for (const row of form.querySelectorAll('[data-custom-axis-field]')) {
+      const inputs = row.querySelectorAll('input');
+      const lo = inputs[0].value === '' ? undefined : Number(inputs[0].value);
+      const hi = inputs[1].value === '' ? undefined : Number(inputs[1].value);
+      if (!valid(lo,hi)) {document.getElementById('axisError').textContent=row.dataset.customAxisField+'의 최솟값은 최댓값보다 작아야 합니다.';return;}
+      customLimits[row.dataset.customAxisField] = {min:lo,max:hi};
+    }
     appState.axisLimits = limits;
+    appState.customAxisLimits = customLimits;
+    try { localStorage.setItem('xdlv-custom-axis-limits', JSON.stringify(customLimits)); } catch {}
     try { localStorage.setItem('xdlv-axis-limits', JSON.stringify(limits)); } catch {}
     document.getElementById('axisError').textContent = '적용됨';
     applyZoomRange(Math.max(a.minSec,min), Math.min(a.maxSec,max));
   });
   document.getElementById('axisReset').addEventListener('click', () => {
-    form.reset(); appState.axisLimits = {}; appState.zoomWindow = null;
+    form.reset(); appState.axisLimits = {}; appState.customAxisLimits = {}; appState.zoomWindow = null;
+    document.getElementById('customAxisControls')?.remove();
+    try { localStorage.removeItem('xdlv-custom-axis-limits'); } catch {}
     try { localStorage.removeItem('xdlv-axis-limits'); } catch {}
     document.getElementById('axisError').textContent = '자동 범위';
     if (appState.analysis) renderTelemetryCharts();
   });
   document.getElementById('plotDisplayControls').append(document.getElementById('chartShortcuts'));
   document.getElementById('plotDisplayControls').append(document.querySelector('.quick-zoom'));
+}
+
+function renderCustomAxisControls(fields) {
+  const form=document.getElementById('axisForm');
+  if(!form) return;
+  form.querySelector('fieldset:nth-of-type(2)').hidden=fields.length>0;
+  let panel=document.getElementById('customAxisControls');
+  if(!fields.length) {panel?.remove();return;}
+  const signature=JSON.stringify(fields);
+  if(panel?.dataset.fields===signature) return;
+  panel?.remove();panel=document.createElement('fieldset');
+  panel.id='customAxisControls';panel.dataset.fields=signature;panel.style.gridColumn='1 / -1';
+  const legend=document.createElement('legend');legend.textContent='사용자 지정 필드별 세로축';panel.append(legend);
+  for(const field of fields) {
+    const row=document.createElement('div');row.dataset.customAxisField=field;
+    const name=document.createElement('strong');name.textContent=field;row.append(name);
+    for(const [side,text] of [['min','최솟값'],['max','최댓값']]) {
+      const label=document.createElement('label');label.append(document.createTextNode(field+' '+text));
+      const input=document.createElement('input');input.type='number';input.step='any';
+      input.value=appState.customAxisLimits?.[field]?.[side]??'';label.append(input);row.append(label);
+    }
+    panel.append(row);
+  }
+  form.querySelector('p').before(panel);
 }
 
 function setupAnalysisShell(workspace, heading) {
@@ -5478,8 +5566,6 @@ function setupAnalysisShell(workspace, heading) {
   sidebarLogo.className='sidebar-logo';
   sidebar.querySelector('.brand-mark').replaceWith(sidebarLogo);
   logCard.append(document.getElementById('btnClearAllLogs'));
-  document.querySelector('header label[for=fileInput] span').textContent='로그 열기';
-  document.querySelector('#btnCopyLogbook span').textContent='비행일지 복사';
   document.querySelector('#btnOpenSettings span').textContent='기준 설정';
   manager.remove();
   const main = document.createElement('div');
@@ -5550,7 +5636,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   button.className='px-3 py-1.5 rounded border border-slate-700 text-xs bg-slate-800';
   button.title='합성 비행·비행 미감지·12S 배터리 예시 3개 열기';
   button.addEventListener('click',()=>handleMultipleFilesUpload(EMBEDDED_EXAMPLES.map(e=>new File([e.text],e.name,{type:'text/plain'}))));
-  document.querySelector('header label[for=fileInput]').before(button);
+  document.getElementById('btnOpenSettings').before(button);
 });
 </script>
 </body>
