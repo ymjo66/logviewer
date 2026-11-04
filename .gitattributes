@@ -1,4 +1,4 @@
 * text=auto
-*.bat text eol=crlf
-*.woff2 binary
-*.ico binary
+*.html text eol=lf
+*.cjs text eol=lf
+*.md text eol=lf

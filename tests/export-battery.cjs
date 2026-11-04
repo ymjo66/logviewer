@@ -1,0 +1,34 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const scripts=[...fs.readFileSync('index.html','utf8').matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
+const context=vm.createContext({});
+vm.runInContext(scripts.find(s=>s.includes('function detectBatteryCells')),context);
+vm.runInContext(scripts.find(s=>s.includes('const CSV_COLUMNS')),context);
+const detect=context.detectBatteryCells;
+assert.equal(detect(12,[{Volt:45}]).cells,12,'manual 12S must override voltage inference');
+assert.equal(detect(0,[]).cells,0,'no voltage must not invent 3S');
+assert.equal(detect(0,[{Volt:24.2}]).cells,0,'6S vs discharged 7S cannot be determined from total voltage');
+function bcl(cells,instance=0) {
+  return Array.from({length:4},(_,t)=>({TimeUS:t*1e6,Instance:instance,Volt:cells*4,...Object.fromEntries(Array.from({length:cells},(_,i)=>['V'+(i+1),4000]))}));
+}
+for(const cells of [5,6,12]) assert.equal(detect(0,[{Instance:0,Volt:cells*4}],bcl(cells)).cells,cells,'BCL detects '+cells+'S');
+assert.equal(detect(0,[{Instance:0,Volt:24}],bcl(5,1)).cells,0,'do not use a different battery instance');
+const invalid=bcl(6).map(r=>({...r,V2:65535}));
+assert.equal(detect(0,[{Volt:24}],invalid).cells,0,'ignore invalid cell/sentinel values');
+const earlySpike=[1000,...Array.from({length:29},()=>24)];
+assert.ok(detect(0,earlySpike.map(Volt=>({Volt}))).candidates.includes(6),'robust early voltage estimate ignores a single spike');
+const main=bcl(12).map(r=>({...r,Volt:56}));
+const extra=main.map(r=>({TimeUS:r.TimeUS,Instance:0,V13:4000,V14:4000}));
+assert.equal(detect(0,[{Volt:56}],main,extra).cells,14,'combine BCL and BCL2');
+const logs=[{fileName:'a,"드론".log',analysis:{groundOnly:true,sorties:[],detectedCells:0,timeline:[{sec:1,autoRelAlt:2},{sec:2,autoRelAlt:3}]}}];
+const csv=context.buildSelectedCsv(logs,'summary',['file','detection','takeoff']);
+assert.ok(csv.startsWith('\uFEFF'),'Excel UTF-8 BOM');
+assert.ok(csv.includes('"a,""드론"".log"'),'escape quotes and commas');
+assert.ok(csv.includes('비행 미감지'));
+assert.ok(!csv.includes('지상'));
+const telemetry=context.buildSelectedCsv(logs,'telemetry',['sec','autoRelAlt'],{minSec:2,maxSec:3});
+assert.equal(telemetry.split('\r\n').length,2,'only selected time range');
+assert.ok(!telemetry.includes('파일명'),'only selected columns');
+assert.throws(()=>context.buildSelectedCsv(logs,'summary',[]));
+assert.equal(context.csvCell('=1+1'),'"\'=1+1"','prevent spreadsheet formula evaluation');
+assert.equal(context.csvCell(-2),'"-2"','numeric negative values remain numeric');
+console.log('PASS: battery counts, ambiguity, BCL instances/sentinels, BCL2, CSV columns/range/escaping');
