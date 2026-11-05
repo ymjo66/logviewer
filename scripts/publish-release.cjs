@@ -5,7 +5,7 @@ async function main(){
  let token=process.env.GH_TOKEN||process.env.GITHUB_TOKEN;
  if(!token){const c=spawnSync('git',['credential','fill'],{input:'protocol=https\nhost=github.com\n\n',encoding:'utf8',windowsHide:true});const fields=Object.fromEntries(c.stdout.trim().split(/\r?\n/).map(line=>{const i=line.indexOf('=');return[line.slice(0,i),line.slice(i+1)];}));token=fields.password;}
  if(!token)throw Error('GitHub credentials unavailable');
- const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'logviewer-release','X-GitHub-Api-Version':'2022-11-28'};
+ const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'logviewer-release','X-GitHub-Api-Version':'2022-11-28','Cache-Control':'no-cache'};
  async function api(route,method='GET',body){const r=await fetch('https://api.github.com/repos/'+repo+route,{method,headers:{...headers,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(method+' '+route+' HTTP '+r.status);return r.status===204?null:r.json();}
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
  const probe=await fetch(`https://api.github.com/repos/${repo}/releases/tags/${tag}`,{headers});let release;

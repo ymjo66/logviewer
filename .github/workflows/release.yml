@@ -6,8 +6,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: logviewer-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: windows-latest
     permissions:
       contents: write
