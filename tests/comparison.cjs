@@ -23,3 +23,13 @@ assert.equal(result.datasets[0].borderColor,result.datasets[3].borderColor,'same
 assert.notDeepEqual(Array.from(result.datasets[0].borderDash),Array.from(result.datasets[3].borderDash));
 assert.throws(()=>vm.runInContext('buildLogComparison(logs,[],"start")',context),/하나 이상/);
 console.log('PASS: comparison alignment, common metric, distinct colors, narrow peak retention, missing fields/takeoff and gaps; no raw buffers loaded');
+context.messageInstanceField=()=> 'I';context.readPlotField=(row,key)=>key==='Samples[1]'?row.Samples?.[1]:row[key];context.mapPlotRows=(rows,fn)=>rows.map(fn);context.buildFieldCatalog=parsed=>parsed.catalog;
+for(const log of logs){log.parsedLog.tables.TEST=[{TimeUS:100e6,I:0,Samples:[1,99]},{TimeUS:101e6,I:1,Samples:[2,8000]},{TimeUS:102e6,I:1,Samples:[3,7]}];log.parsedLog.catalog=[{name:'TEST[1]',fields:[{name:'Samples[1]',numeric:true}]}];}
+result=vm.runInContext('buildLogComparison(logs,[rawComparisonKey("TEST[1]","Samples[1]"),"autoRelAlt"],"start")',context);
+assert.equal(result.datasets.length,6);assert.equal(result.datasets[0].data.length,2);assert.equal(result.datasets[0].data[0].y,8000);assert.equal(Object.keys(result.axes).length,2);
+logs[1].parsedLog.catalog=[];result=vm.runInContext('buildLogComparison(logs,rawComparisonKey("TEST[1]","Samples[1]"),"start")',context);assert.equal(result.datasets.length,2);assert.match(result.skipped[0],/수치 필드 기록 없음/);
+console.log('PASS: arbitrary raw fields, sensor instance and array element comparison; missing fields reported');
+logs[0].parsedLog.nativeId='native-raw';logs[0].parsedLog.nativeMetadata={isText:false};context.nativeDouble=value=>value;context.nativeDecode=(key,value)=>value;
+context.nativeCall=(method,id,json)=>{assert.equal(method,'QueryField');assert.equal(id,'native-raw');const query=JSON.parse(json);assert.equal(query.message,'TEST');assert.equal(query.field,'Samples[1]');assert.equal(query.instance,'1');return JSON.stringify([{count:2,data:[{x:101,y:8000},{x:102,y:7}],statistics:{min:7,max:8000,mean:4003.5}}]);};
+result=vm.runInContext('buildLogComparison([logs[0]],rawComparisonKey("TEST[1]","Samples[1]"),"start")',context);assert.equal(result.datasets[0].data[0].x,1);assert.equal(result.datasets[0].data[0].y,8000);
+console.log('PASS: native raw-field comparison queries disk engine with selected sensor and original timestamps');

@@ -367,6 +367,20 @@
       return a.timeline.filter(pt => pt.sec >= appState.zoomWindow.minSec && pt.sec <= appState.zoomWindow.maxSec);
     }
 
+    function detectMotorOutputs(parsed,analysis) {
+      const parameters=new Map();for(const row of analysis.parmRows||[])parameters.set(row.Name,Number(row.Value));
+      const columns=new Set(parsed.fmtList.filter(schema=>schema.name==='RCOU').flatMap(schema=>schema.columns));
+      const recorded=[...columns].filter(column=>/^C\d+$/.test(column)).sort((a,b)=>Number(a.slice(1))-Number(b.slice(1)));
+      const mapped=[];
+      for(const column of recorded){const channel=Number(column.slice(1)),value=parameters.get(`SERVO${channel}_FUNCTION`);const motor=value>=33&&value<=40?value-32:value>=82&&value<=85?value-73:null;if(motor!==null)mapped.push({column,motor});}
+      const frame=analysis.frameInfo?.name||'기체 형식 미확인';
+      if(mapped.length)return {frame,source:'SERVO 출력 설정',outputs:mapped.sort((a,b)=>a.motor-b.motor)};
+      const frameClass=Number(Object.keys(FRAME_CLASS_NAMES).find(key=>FRAME_CLASS_NAMES[key]===analysis.frameInfo?.name))||Number(parameters.get('FRAME_CLASS')||parameters.get('Q_FRAME_CLASS'));
+      const count={1:4,2:6,3:8,4:8,5:6,7:3,9:2,10:2,12:12,13:4,14:10}[frameClass];
+      if(count&&!recorded.some(column=>parameters.has(`SERVO${column.slice(1)}_FUNCTION`)))return {frame,source:'기체 기본 출력 순서 추정',outputs:recorded.filter(column=>Number(column.slice(1))<=count).map(column=>({column,motor:Number(column.slice(1))}))};
+      return {frame,source:'모터 매핑 미확인 · 기록된 출력 채널',outputs:recorded.map(column=>({column,motor:null}))};
+    }
+
     function buildPresetConfig(presetKey, pts) {
       if (presetKey === 'takeoff_alt') {
         const isAmsl = appState.altSourceMode === 'gps_amsl';
@@ -424,14 +438,13 @@
         };
       }
       if (presetKey === 'motors') {
+        const mapping=detectMotorOutputs(appState.parsedLog,appState.analysis);
+        const fields=mapping.outputs.map(output=>'RCOU.'+output.column);
+        const config=buildCustomFieldConfig(fields,pts===appState.analysis.timeline);
+        for(const dataset of config.datasets){const output=mapping.outputs.find(item=>dataset.label.startsWith('RCOU.'+item.column+' [')||dataset.label==='RCOU.'+item.column);dataset.label=(output?.motor?`모터 ${output.motor}`:'출력 '+output?.column)+` (${dataset.label} µs)`;dataset.yAxisID='y';}
         return {
-          title: '모터 PWM 출력 밸런스 (RCOU.C1 ~ C4 µs)',
-          datasets: [
-            { label: '모터 1 (RCOU.C1 µs)', data: mapPlotRows(pts,p => ({ x: p.sec, y: p.c1 })), borderColor: '#38bdf8', borderWidth: 1.6, pointRadius: 0, yAxisID: 'y' },
-            { label: '모터 2 (RCOU.C2 µs)', data: mapPlotRows(pts,p => ({ x: p.sec, y: p.c2 })), borderColor: '#10b981', borderWidth: 1.6, pointRadius: 0, yAxisID: 'y' },
-            { label: '모터 3 (RCOU.C3 µs)', data: mapPlotRows(pts,p => ({ x: p.sec, y: p.c3 })), borderColor: '#f59e0b', borderWidth: 2.0, pointRadius: 0, yAxisID: 'y' },
-            { label: '모터 4 (RCOU.C4 µs)', data: mapPlotRows(pts,p => ({ x: p.sec, y: p.c4 })), borderColor: '#a855f7', borderWidth: 1.6, pointRadius: 0, yAxisID: 'y' }
-          ],
+          title: `모터 출력 · ${mapping.frame} · ${mapping.outputs.length}채널 (${mapping.source})`,
+          datasets: config.datasets,
           yLabel: 'PWM 출력 (µs)',
           y1Label: null
         };

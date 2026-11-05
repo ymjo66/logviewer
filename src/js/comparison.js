@@ -9,6 +9,31 @@ const COMPARISON_METRICS=[
   ['nSats','GPS 위성 수',['GPS']],['hdop','HDOP',['GPS']]
 ];
 let comparisonChart=null,comparisonChosen=new Set(),comparisonKnown=new Set(),comparisonVersions=new Map();
+const comparisonFields=new Map();let comparisonFieldSignature='';const comparisonFieldChosen=new Set();
+function rawComparisonKey(message,field){return 'raw:'+JSON.stringify([message,field]);}
+function rawComparisonCurves(log,key,offset){
+  const [message,field]=JSON.parse(key.slice(4)),match=/^(.*)\[([^\]]+)\]$/.exec(message),name=match?match[1]:message;
+  const parsed=log.parsedLog,rows=parsed.tables[name];if(!rows?.length)return [];
+  const instanceKey=messageInstanceField(parsed,name);
+  if(parsed.nativeId&&!parsed.nativeMetadata.isText){
+    return JSON.parse(nativeCall('QueryField',parsed.nativeId,JSON.stringify({message:name,field,instanceKey,instance:match?.[2]??null,min:nativeDouble(log.analysis.minSec),max:nativeDouble(log.analysis.maxSec)})),nativeDecode).filter(curve=>curve.count>0).map(curve=>({data:curve.data.map(point=>({x:point.x-offset,y:point.y})),statistics:curve.statistics}));
+  }
+  const selected=match?rows.filter(row=>instanceKey&&String(row[instanceKey])===match[2]):rows;
+  const points=mapPlotRows(selected,row=>({sec:row.TimeUS/1e6,value:readPlotField(row,field)}));
+  return [{data:comparisonPoints(points,'value',offset).sort((a,b)=>a.x-b.x)}];
+}
+function refreshComparisonFields(force=false){
+  const container=document.getElementById('comparisonRawFields');if(!container)return;
+  const signature=appState.logs.map(log=>log.parsedLog.nativeId||log.fileName+':'+log.parsedLog.totalPackets).join('|');
+  if(force||signature!==comparisonFieldSignature){comparisonFields.clear();for(const log of appState.logs)for(const entry of buildFieldCatalog(log.parsedLog))for(const field of entry.fields){const key=rawComparisonKey(entry.name,field.name),old=comparisonFields.get(key);comparisonFields.set(key,{message:entry.name,field:field.name,unit:field.unit||old?.unit||'',numeric:field.numeric||old?.numeric});}comparisonFieldSignature=signature;for(const key of comparisonFieldChosen)if(!comparisonFields.has(key))comparisonFieldChosen.delete(key);}
+  const query=(document.getElementById('comparisonFieldSearch').value||'').trim().toLowerCase();container.replaceChildren();
+  const groups=new Map();for(const [key,field] of comparisonFields){if(query&&!`${field.message}.${field.field}`.toLowerCase().includes(query))continue;if(!groups.has(field.message))groups.set(field.message,[]);groups.get(field.message).push([key,field]);}
+  for(const [message,fields] of groups){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent=`${message} · ${fields.length}개`;details.append(summary);
+    const populate=()=>{if(details.childElementCount>1)return;for(const [key,field] of fields){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=comparisonFieldChosen.has(key);input.disabled=!field.numeric;input.addEventListener('change',()=>{if(input.checked)comparisonFieldChosen.add(key);else comparisonFieldChosen.delete(key);document.getElementById('comparisonFieldCount').textContent=`전체 ${comparisonFields.size}개 필드 · 선택 ${comparisonFieldChosen.size}개`;clearLogComparison();});label.append(input,document.createTextNode(field.field+(field.unit?' ('+field.unit+')':'')+(!field.numeric?' · 수치 차트 불가':'')));details.append(label);}};
+    details.addEventListener('toggle',()=>{if(details.open)populate();});if(query){populate();details.open=true;}container.append(details);
+  }
+  document.getElementById('comparisonFieldCount').textContent=`전체 ${comparisonFields.size}개 필드 · 선택 ${comparisonFieldChosen.size}개`;
+}
 const COMPARISON_SOURCE_FIELDS={autoRelAlt:['Alt','RelHomeAlt','RelOriginAlt'],spd:['Spd'],volt:['Volt'],curr:['Curr'],vibeX:['VibeX'],vibeY:['VibeY'],vibeZ:['VibeZ'],roll:['Roll'],pitch:['Pitch'],yaw:['Yaw'],thO:['ThO','C1'],c1:['C1'],c2:['C2'],c3:['C3'],c4:['C4'],magPct:['MagX','MagY','MagZ'],nSats:['NSats'],hdop:['HDop']};
 function comparisonColor(index){return `hsl(${(index*137.508)%360} 65% 40%)`;}
 function comparisonPoints(rows,key,offset,limit=1800){
@@ -32,19 +57,21 @@ function buildLogComparison(logs,keys,alignment){
   if(!keys.length)throw Error('비교 항목을 하나 이상 선택하세요.');
   const datasets=[],skipped=[],axes={};
   for(const [metricIndex,key] of keys.entries()){
-  const metric=COMPARISON_METRICS.find(m=>m[0]===key);if(!metric)throw Error('지원하지 않는 비교 항목입니다.');
-  const axisID='compare_'+key;
+  const raw=key.startsWith('raw:'),descriptor=raw?JSON.parse(key.slice(4)):null;
+  const metric=raw?[key,descriptor.join('.')]:COMPARISON_METRICS.find(m=>m[0]===key);if(!metric)throw Error('지원하지 않는 비교 항목입니다.');
+  const axisID=raw?'compare_raw_'+metricIndex:'compare_'+key;
   for(const log of logs){
-    if(!metric[2].some(name=>log.parsedLog.tables[name]?.length&&log.parsedLog.fmtList.some(schema=>schema.name===name&&schema.columns.some(column=>COMPARISON_SOURCE_FIELDS[key].includes(column))))){skipped.push(`${log.fileName} · ${metric[1]}: 해당 필드 기록 없음`);continue;}
+    if(!raw&&!metric[2].some(name=>log.parsedLog.tables[name]?.length&&log.parsedLog.fmtList.some(schema=>schema.name===name&&schema.columns.some(column=>COMPARISON_SOURCE_FIELDS[key].includes(column))))){skipped.push(`${log.fileName} · ${metric[1]}: 해당 필드 기록 없음`);continue;}
     const offset=alignment==='takeoff'?log.analysis.sorties?.[0]?.takeoffSec:log.analysis.minSec;
     if(!Number.isFinite(offset)){skipped.push(`${log.fileName}: 첫 이륙 미감지`);continue;}
-    const data=comparisonPoints(log.analysis.timeline,key,offset);
+    if(raw){const [message,field]=descriptor,entry=buildFieldCatalog(log.parsedLog).find(item=>item.name===message);if(!entry?.fields.some(item=>item.name===field&&item.numeric)){skipped.push(`${log.fileName} · ${metric[1]}: 수치 필드 기록 없음`);continue;}}
+    const data=raw?rawComparisonCurves(log,key,offset).flatMap(curve=>curve.data):comparisonPoints(log.analysis.timeline,key,offset);
     if(!data.some(point=>point.y!==null)){skipped.push(`${log.fileName}: 유효한 값 없음`);continue;}
     axes[axisID]??={type:'linear',position:metricIndex%2?'right':'left',title:{display:true,text:metric[1]},ticks:{color:'#444'},grid:{color:'#e5e5e5',drawOnChartArea:Object.keys(axes).length===0}};
     datasets.push({label:`${metric[1]} · ${log.fileName}`,logIndex:appState.logs.indexOf(log),metricKey:key,yAxisID:axisID,data,borderColor:comparisonColor(appState.logs.indexOf(log)),borderDash:[[],[7,3],[2,3],[9,3,2,3],[4,2]][metricIndex%5],borderWidth:1.2,pointRadius:0,pointHitRadius:5,fill:false,tension:0,spanGaps:false});
   }
   }
-  return {datasets,skipped,axes,title:keys.length===1?COMPARISON_METRICS.find(m=>m[0]===keys[0])[1]:'다중 항목 비교'};
+  return {datasets,skipped,axes,title:keys.length===1?(keys[0].startsWith('raw:')?JSON.parse(keys[0].slice(4)).join('.'):COMPARISON_METRICS.find(m=>m[0]===keys[0])[1]):'다중 항목 비교'};
 }
 function setupLogComparison(){
   const notice=document.createElement('aside');notice.id='capacityNotice';notice.className='capacity-notice';
@@ -56,7 +83,9 @@ function setupLogComparison(){
   const oldMetric=panel.querySelector('#comparisonMetric'),metricChoices=document.createElement('fieldset');metricChoices.id='comparisonMetricChoices';
   const legend=document.createElement('legend');legend.textContent='비교 항목 (여러 개 선택 가능)';metricChoices.append(legend);oldMetric.parentElement.remove();panel.querySelector('.comparison-controls').before(metricChoices);
   for(const [key,label] of COMPARISON_METRICS){const item=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='autoRelAlt';input.addEventListener('change',clearLogComparison);item.append(input,document.createTextNode(label));metricChoices.append(item);}
-  panel.querySelector('p').textContent='여러 항목을 선택해 로그별 색상·항목별 선 모양으로 비교합니다. 같은 항목은 공통 세로축, 다른 항목은 개별 세로축을 사용합니다. 분석 타임라인 기준입니다.';
+  const fieldPicker=document.createElement('details');fieldPicker.className='comparison-field-picker';fieldPicker.innerHTML='<summary>전체 원본 필드 선택</summary><input id="comparisonFieldSearch" type="search" placeholder="전체 필드 검색 (예: GPS[0].Alt, RCOU.C6)" aria-label="비교할 전체 필드 검색"><button type="button" id="comparisonClearFields">원본 필드 선택 초기화</button><output id="comparisonFieldCount"></output><div id="comparisonRawFields"></div>';metricChoices.after(fieldPicker);
+  fieldPicker.querySelector('input').addEventListener('input',()=>refreshComparisonFields());fieldPicker.querySelector('button').addEventListener('click',()=>{comparisonFieldChosen.clear();refreshComparisonFields();clearLogComparison();});
+  panel.querySelector('p').textContent='기본 분석 항목 또는 전체 원본 필드를 여러 개 선택해 비교합니다. 같은 필드는 공통 축을 사용하고 센서 인스턴스·배열 원소도 선택할 수 있습니다.';
   const surface=document.createElement('div');surface.className='comparison-chart-surface';panel.querySelector('.comparison-frame').append(surface);surface.append(panel.querySelector('canvas'));
   panel.querySelector('#comparisonSelectAll').addEventListener('click',()=>{comparisonChosen=new Set(appState.logs);refreshLogComparison(false);clearLogComparison();});
   panel.querySelector('#comparisonSelectNone').addEventListener('click',()=>{comparisonChosen.clear();refreshLogComparison(false);clearLogComparison();});
@@ -83,6 +112,7 @@ function refreshLogComparison(invalidate=true){
   for(const log of appState.logs)if(!comparisonKnown.has(log)&&comparisonChosen.size<2)comparisonChosen.add(log);
   comparisonKnown=current;
   comparisonVersions=new Map(appState.logs.map(log=>[log,log.analysis]));
+  refreshComparisonFields(changed);
   choices.replaceChildren();appState.logs.forEach((log,index)=>{
     const label=document.createElement('label'),input=document.createElement('input'),dot=document.createElement('span');input.type='checkbox';input.checked=comparisonChosen.has(log);dot.style.color=comparisonColor(index);dot.textContent='●';
     input.addEventListener('change',()=>{if(input.checked)comparisonChosen.add(log);else comparisonChosen.delete(log);clearLogComparison();});label.append(input,dot,document.createTextNode(log.fileName));label.title=log.fileName;choices.append(label);
@@ -91,11 +121,13 @@ function refreshLogComparison(invalidate=true){
   document.getElementById('capacityTotals').textContent=`현재 첨부 ${appState.logs.length}개 · 원본 합계 ${(bytes/1024**3).toFixed(2)} GiB (실제 메모리 사용량과 다름)`;
   if(invalidate&&changed)clearLogComparison();
 }
-function drawLogComparison(){
+function drawLogComparison(){return queueLogTask(async()=>{
   const status=document.getElementById('comparisonStatus');
   try{
     const keys=Array.from(document.querySelectorAll('#comparisonMetricChoices input:checked'),input=>input.value);
-    const result=buildLogComparison(appState.logs.filter(log=>comparisonChosen.has(log)),keys,document.getElementById('comparisonAlignment').value);
+    keys.push(...comparisonFieldChosen);const selected=appState.logs.filter(log=>comparisonChosen.has(log));
+    const result={datasets:[],skipped:[],axes:{}};
+    for(const log of selected){status.textContent=`비교 데이터 조회 중 · ${log.fileName}`;await new Promise(resolve=>setTimeout(resolve,0));if(comparisonFieldChosen.size)await log.parsedLog.ensureLoaded?.();try{const part=buildLogComparison([log],keys,document.getElementById('comparisonAlignment').value);result.datasets.push(...part.datasets);result.skipped.push(...part.skipped);Object.assign(result.axes,part.axes);}finally{if(log!==appState.logs[appState.activeLogIndex])log.parsedLog.releaseRawBytes?.();}}
     clearLogComparison();status.textContent=`${new Set(result.datasets.map(dataset=>dataset.logIndex)).size}개 로그 · ${Object.keys(result.axes).length}개 항목 · ${result.datasets.length}개 곡선${result.skipped.length?' · 제외: '+result.skipped.join(' / '):''}`;
     if(!result.datasets.length)return;
     document.querySelector('.comparison-chart-surface').style.minWidth=`${Math.max(620,500+Object.keys(result.axes).length*55)}px`;
@@ -117,5 +149,5 @@ function drawLogComparison(){
       }
     });
   }catch(error){status.textContent=`비교 실패: ${error.message}`;}
-}
+});}
 function resetComparisonRange(){if(!comparisonChart)return;delete comparisonChart.options.scales.x.min;delete comparisonChart.options.scales.x.max;comparisonChart.update('none');}

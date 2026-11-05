@@ -210,3 +210,10 @@ body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer
 #analysisSidebar label[for=fileInput] {color:#b8c5d4!important}
 .preset-toolbar button:not(.bg-sky-600) {background:#303741!important;color:#d8dfe8!important}
 .preset-toolbar button:not(.bg-sky-600):hover {background:#414a58!important}
+.comparison-field-picker { margin: 12px 0; padding: 12px; border: 1px solid #414854; border-radius: 6px; }
+.comparison-field-picker > summary { cursor: pointer; font-weight: 600; }
+#comparisonFieldSearch { width: min(100%, 420px); margin: 12px 8px 12px 0; padding: 8px; }
+#comparisonFieldCount { display: block; margin-bottom: 8px; color: inherit; }
+#comparisonRawFields { max-height: 320px; overflow: auto; }
+#comparisonRawFields details { padding: 6px; border-bottom: 1px solid #414854; }
+#comparisonRawFields label { display: inline-flex; align-items: center; gap: 6px; margin: 6px 14px 6px 0; }

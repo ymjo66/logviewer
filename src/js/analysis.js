@@ -47,7 +47,7 @@
       timeMode: 'KST',
       altSourceMode: 'auto_rel',
       zoomWindow: null,
-      activePreset: 'takeoff_alt',
+      activePreset: 'motors',
       customFields: [],
       scrubberIndex: 0,
       playTimer: null,
