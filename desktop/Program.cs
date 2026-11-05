@@ -31,6 +31,8 @@ namespace LogViewer {
     if(args.Length>1 && args[0]=="--verify-release")return VerifyRelease(args[1]);
     if(args.Length>1 && args[0]=="--stage-update")return StageUpdate(args[1]);
     if(args.Length>1 && args[0]=="--verify-fallback")return StageUpdate(args[1],true);
+    if(args.Length>2 && (args[0]=="--disk-test"||args[0]=="--disk-dump"))return DiskLogBridge.Test(args[1],args[2],args[0]=="--disk-dump");
+    if(args.Length>3 && args[0]=="--disk-batch")return DiskLogBridge.TestBatch(args[1],Int32.Parse(args[2]),args[3]);
     Cache=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LogViewer","app",VersionText+"-"+Hash(Resource("ViewerHtml")).Substring(0,12));
     Directory.CreateDirectory(Cache);
     foreach(string name in new[]{"Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll"})EnsureResourceFile(name,name);
@@ -68,6 +70,7 @@ namespace LogViewer {
 
  internal sealed class ViewerForm:Form {
   readonly WebView2 browser=new WebView2();
+  DiskLogBridge diskBridge;string diskEndpoint;
   string readyFile,readyHash,documentUrl,updateStage="idle",updateMessage="자동 업데이트 대기";bool checking;
   readonly System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   [DllImport("user32.dll")]static extern bool ReleaseCapture();
@@ -80,7 +83,7 @@ namespace LogViewer {
    browser.Dock=DockStyle.Fill;Controls.Add(browser);
    Shown+=async(sender,e)=>{await InitializeBrowser();await CheckUpdates();};
    updateTimer.Interval=10*60*1000;updateTimer.Tick+=async(sender,e)=>{if(readyFile==null)await CheckUpdates();};updateTimer.Start();
-   FormClosed+=(sender,e)=>{updateTimer.Stop();updateTimer.Dispose();ApplyReadyUpdate();};
+   FormClosed+=(sender,e)=>{updateTimer.Stop();updateTimer.Dispose();browser.Dispose();try{if(diskBridge!=null)diskBridge.Dispose();}catch(Exception error){Updater.Log("disk-cleanup",error.Message);}ApplyReadyUpdate();};
   }
   protected override void WndProc(ref Message message){
    base.WndProc(ref message);
@@ -94,12 +97,54 @@ namespace LogViewer {
     var profile=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LogViewer","browser");
     var environment=await CoreWebView2Environment.CreateAsync(null,profile);
     await browser.EnsureCoreWebView2Async(environment);
+    // Keep the engine endpoint separate from the static virtual-host mapping.
+    diskEndpoint="https://engine.logviewer.local/"+Guid.NewGuid().ToString("N");
+    diskBridge=new DiskLogBridge(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LogViewer","disk-cache",Guid.NewGuid().ToString("N")),diskEndpoint,this);
+    browser.CoreWebView2.AddHostObjectToScript("diskLogs",diskBridge);
+    browser.CoreWebView2.AddWebResourceRequestedFilter(diskEndpoint,CoreWebView2WebResourceContext.All,CoreWebView2WebResourceRequestSourceKinds.All);
+    browser.CoreWebView2.WebResourceRequested+=async(sender,e)=>{
+     if(e.Request.Uri!=diskEndpoint)return;var deferral=e.GetDeferral();
+     try{
+      const string cors="Access-Control-Allow-Origin: https://logviewer.local\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nCache-Control: no-store\r\n";
+      if(e.Request.Method=="OPTIONS"){e.Response=environment.CreateWebResourceResponse(new MemoryStream(new byte[0]),200,"OK",cors);return;}
+      if(e.Request.Method!="POST")throw new IOException("잘못된 엔진 요청입니다.");
+      string origin=e.Request.Headers.Contains("Origin")?e.Request.Headers.GetHeader("Origin"):"";
+      if(origin.Length>0&&origin!="https://logviewer.local")throw new IOException("허용되지 않은 요청 출처입니다.");
+      string text;using(var reader=new StreamReader(e.Request.Content)){var buffer=new char[4096];var builder=new StringBuilder();int count;while((count=reader.Read(buffer,0,buffer.Length))>0){builder.Append(buffer,0,count);if(builder.Length>5*1024*1024)throw new IOException("요청이 너무 큽니다.");}text=builder.ToString();}
+      var request=DiskLogBridge.Json().Deserialize<Dictionary<string,object>>(text);
+      var args=((System.Collections.IEnumerable)request["args"]).Cast<object>().ToArray();
+      object result=await Task.Run(()=>diskBridge.Dispatch((string)request["method"],args));
+      byte[] bytes=Encoding.UTF8.GetBytes(DiskLogBridge.Json().Serialize(new {result}));
+      e.Response=environment.CreateWebResourceResponse(new MemoryStream(bytes),200,"OK",cors+"Content-Type: application/json; charset=utf-8");
+     }catch(Exception error){Updater.Log("disk-api-error",error.Message);if(!browser.IsDisposed)try{e.Response=environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(DiskLogBridge.Json().Serialize(new {error=error.Message}))),400,"Bad Request","Content-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: https://logviewer.local");}catch(COMException){}catch(InvalidOperationException){}}
+     finally{try{deferral.Complete();}catch(COMException){}catch(InvalidOperationException){}}
+    };
     browser.CoreWebView2.SetVirtualHostNameToFolderMapping("logviewer.local",Program.Cache,CoreWebView2HostResourceAccessKind.DenyCors);
     browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled=false;
     documentUrl="https://logviewer.local/index.html?v="+Program.Hash(Program.Resource("ViewerHtml")).Substring(0,12);
-    browser.CoreWebView2.WebMessageReceived+=(sender,e)=>{
+    browser.CoreWebView2.WebMessageReceived+=async(sender,e)=>{
      if(e.Source!=documentUrl)return;
      string command;try{command=e.TryGetWebMessageAsString();}catch{return;}
+     if(command.StartsWith("{")){
+      Dictionary<string,object> request;try{request=DiskLogBridge.Json().Deserialize<Dictionary<string,object>>(command);}catch{return;}
+      string action=request.ContainsKey("action")?Convert.ToString(request["action"]):"";
+      if(action=="disk.pick"||action=="disk.drop"){
+       try{
+        string[] paths;
+        if(action=="disk.pick"){using(var picker=new OpenFileDialog{Filter="드론 로그 (*.bin;*.log)|*.bin;*.log",Multiselect=true}){if(picker.ShowDialog(this)!=DialogResult.OK)return;paths=picker.FileNames;}}
+        else paths=e.AdditionalObjects.OfType<CoreWebView2File>().Select(file=>file.Path).ToArray();
+        PostDiskMessage(new {type="disk-files",files=diskBridge.Register(paths)});
+       }catch(Exception error){PostDiskMessage(new {type="disk-error",message=error.Message});}
+       return;
+      }
+      if(action=="disk.index"){
+       string requestId=Convert.ToString(request["requestId"]),id=Convert.ToString(request["id"]);long last=0;
+       try{string metadata=await Task.Run(()=>diskBridge.Import(id,(fraction,phase)=>{long now=DateTime.UtcNow.Ticks;if(now-last<TimeSpan.TicksPerMillisecond*150&&fraction<1)return;last=now;PostDiskMessage(new {type="disk-progress",requestId,fraction,phase});}));PostDiskMessage(new {type="disk-result",requestId,metadata});}
+       catch(Exception error){try{diskBridge.Release(id);}catch{}PostDiskMessage(new {type="disk-result",requestId,error=error.Message});}
+       return;
+      }
+      return;
+     }
      if(command=="ready")SendUpdateState();
      else if(command=="close")Close();
      else if(command=="minimize")WindowState=FormWindowState.Minimized;
@@ -113,6 +158,7 @@ namespace LogViewer {
     MessageBox.Show("Microsoft Edge WebView2 Runtime이 필요합니다.\n\n"+error.Message+"\n\nhttps://developer.microsoft.com/microsoft-edge/webview2/",Text,MessageBoxButtons.OK,MessageBoxIcon.Error);
    }
   }
+  void PostDiskMessage(object message){if(IsDisposed||Disposing||browser.IsDisposed)return;if(InvokeRequired){try{BeginInvoke(new Action(()=>PostDiskMessage(message)));}catch(InvalidOperationException){}return;}try{browser.CoreWebView2.PostWebMessageAsJson(DiskLogBridge.Json().Serialize(message));}catch(InvalidOperationException){}catch(COMException){}}
   static void OpenExternal(string url){Uri uri;if(Uri.TryCreate(url,UriKind.Absolute,out uri)&&uri.Scheme=="https")Process.Start(new ProcessStartInfo(uri.AbsoluteUri){UseShellExecute=true});}
   void SendUpdateState(){try{if(browser.CoreWebView2!=null)browser.CoreWebView2.PostWebMessageAsJson(new JavaScriptSerializer().Serialize(new {type="updateStatus",version=Program.VersionText,stage=updateStage,message=updateMessage}));}catch(Exception){}}
   void SetUpdateState(string stage,string message){updateStage=stage;updateMessage=message;Updater.Log(stage,message);SendUpdateState();}

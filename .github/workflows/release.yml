@@ -24,6 +24,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:exe
+      - name: Check native disk parser
+        run: node tests/native-disk.cjs
       - name: Check native executable
         shell: pwsh
         run: |

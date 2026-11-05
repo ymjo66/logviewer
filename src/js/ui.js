@@ -81,6 +81,7 @@
           e.stopPropagation();
           if(idx===appState.activeLogIndex){mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;}
           appState.logs[idx].parsedLog.releaseRawBytes?.();
+          appState.logs[idx].parsedLog.dispose?.();
           appState.logs.splice(idx, 1);
           if (appState.logs.length === 0) {
             appState.activeLogIndex = -1;
@@ -777,16 +778,19 @@
     }
 
     async function readSingleFilePromise(file) {
-      const parsedLog=await parseDataFlashFile(file,(fraction,phase)=>{
+      const progress=(fraction,phase)=>{
         const label=document.getElementById('uploadProgressText');
         if(label)label.textContent=`${file.name} · ${phase} ${Math.floor(fraction*100)}%`;
-      });
+      };
+      const parsedLog=file.nativeId?await importNativeFile(file,progress):await parseDataFlashFile(file,progress);
       const label=document.getElementById('uploadProgressText');
       if(label)label.textContent=`${file.name} · 전체 데이터 분석 중`;
       await new Promise(resolve=>setTimeout(resolve,0));
-      const analysis=analyzeParsedLog(parsedLog,appState.config);
-      analysis.timeline._packed?.backend.compact();
-      return {fileName:file.name,parsedLog,analysis};
+      try{
+        const analysis=parsedLog.nativeId?await analyzeNativeLog(parsedLog,appState.config,progress):analyzeParsedLog(parsedLog,appState.config);
+        analysis.timeline._packed?.backend.compact?.();
+        return {fileName:file.name,parsedLog,analysis};
+      }catch(error){try{parsedLog.dispose?.();}catch{}throw error;}
     }
 
     function sortLogsByFileName() {
@@ -819,7 +823,7 @@
     async function reanalyzeAllLogs(){
       for(const item of appState.logs){
         await item.parsedLog.ensureLoaded?.();
-        try{item.analysis=analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact();}
+        try{item.analysis=item.parsedLog.nativeId?await analyzeNativeLog(item.parsedLog,appState.config):analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact?.();}
         finally{if(item!==appState.logs[appState.activeLogIndex])item.parsedLog.releaseRawBytes?.();}
         await new Promise(resolve=>setTimeout(resolve,0));
       }
@@ -965,7 +969,7 @@
       document.getElementById('btnClearAllLogs').addEventListener('click', () => {
         stopPlayback();
         mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
-        for(const item of appState.logs)item.parsedLog.releaseRawBytes?.();
+        for(const item of appState.logs){item.parsedLog.releaseRawBytes?.();item.parsedLog.dispose?.();}
         appState.logs = [];
         appState.activeLogIndex = -1;
         appState.parsedLog = null;

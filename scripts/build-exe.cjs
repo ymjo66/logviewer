@@ -26,7 +26,7 @@ async function main(){
   '/resource:assets\\LogViewer.ico,ViewerIcon',
   ...['Core','WinForms'].map(s=>'/resource:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)+`,Microsoft.Web.WebView2.${s}.dll`),
   '/resource:'+path.join(sdk,'runtimes/win-x64/native/WebView2Loader.dll')+',WebView2Loader.dll',
-  'desktop\\Program.cs','artifacts\\Version.cs'];
+  'desktop\\Program.cs','desktop\\DiskLogEngine.cs','artifacts\\Version.cs'];
  execFileSync(csc,args,{stdio:'inherit',windowsHide:true});
  fs.copyFileSync('assets/LogViewer.ico','dist/LogViewer.ico');
  const names=['LogViewer.html',exeName,'LogViewer.ico','THIRD_PARTY_NOTICES.txt'];

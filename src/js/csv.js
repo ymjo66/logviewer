@@ -73,12 +73,17 @@ function setupCsvExport(logCard) {
   dialog.querySelectorAll('[data-logs]').forEach(b=>b.addEventListener('click',()=>{
     dialog.querySelectorAll('#csvLogChoices input').forEach(input=>input.checked=b.dataset.logs==='all'||Number(input.value)===appState.activeLogIndex);
   }));
-  document.getElementById('csvSave').addEventListener('click',()=>{
+  document.getElementById('csvSave').addEventListener('click',async()=>{
     const logs=Array.from(dialog.querySelectorAll('#csvLogChoices input:checked')).map(input=>appState.logs[Number(input.value)]);
     const status=document.getElementById('csvExportStatus');
     if(!logs.length) {status.textContent='저장할 로그를 선택하세요.';return;}
     try {
       const range=mode()==='telemetry'&&document.getElementById('csvCurrentRange').checked?appState.zoomWindow:null;
+      if(logs.some(log=>log.parsedLog?.nativeId)){
+        const save=document.getElementById('csvSave');save.disabled=true;
+        try{await queueLogTask(()=>streamNativeCsv(logs,mode(),Array.from(selected[mode()]),range,status));}finally{save.disabled=false;}
+        return;
+      }
       const text=buildSelectedCsv(logs,mode(),Array.from(selected[mode()]),range);
       const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8;'}));
       const link=document.createElement('a');link.href=url;

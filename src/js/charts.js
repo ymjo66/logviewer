@@ -490,6 +490,7 @@
 
     function normalizePlotDatasets(datasets, range=appState.zoomWindow) {
       for(const ds of datasets){
+        if(ds.nativePrepared){ds.tension=0;ds.spanGaps=false;continue;}
         let data=ds.data,last=-Infinity,ordered=true,valid=true,lo=Infinity,hi=-Infinity,sum=0,count=0;
         const read=i=>data.pointAt?data.pointAt(i):data[i];
         for(let i=0;i<data.length;i++){
@@ -528,6 +529,13 @@
           const mName=selectedInstance?selectedInstance[1]:messageName;
           const rows = appState.parsedLog.tables[mName] || [];
           const instanceKey = messageInstanceField(appState.parsedLog,mName);
+          if(appState.parsedLog.nativeId&&!appState.parsedLog.nativeMetadata.isText){
+            for(const curve of nativeFieldPlot(appState.parsedLog,mName,fName,instanceKey,selectedInstance?.[2],fullRange))ds.push({
+              label:instanceKey&&!selectedInstance?mf+' ['+instanceKey+'='+curve.instance+']':mf,
+              data:curve.data,statistics:curve.statistics,nativePrepared:true,borderColor:palette[idx%palette.length],borderWidth:1.8,pointRadius:0,yAxisID:customFieldAxisId(idx)
+            });
+            return;
+          }
           const filteredRows = rows.filter(r => {
             const s = (r.TimeUS || 0) / 1e6;
             return (!selectedInstance || (instanceKey && String(r[instanceKey])===selectedInstance[2])) &&

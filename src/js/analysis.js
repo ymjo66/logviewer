@@ -234,7 +234,7 @@
       const posRelOffset = calcBaseline(posRows, 'RelHomeAlt', 1.0);
       const gpsAmslOffset = calcBaseline(gpsRows, 'Alt', 1.0);
 
-      const timeline = parsed.storage==='lossless-packed'?createColumnRows({kstStr:secToKstStr,bootStr:secToBootStr}):[];
+      const timeline = parsed.nativeId?createNativeWritableRows(parsed.nativeAnalysisStore||parsed.nativeId,'timeline',{kstStr:secToKstStr,bootStr:secToBootStr}):parsed.storage==='lossless-packed'?createColumnRows({kstStr:secToKstStr,bootStr:secToBootStr}):[];
       for (let i = 0; i < spineRows.length; i++) {
         const sp = spineRows[i];
         const tUs = sp.TimeUS || 0;
@@ -1157,6 +1157,7 @@
         maxSustainedAttWarnSec,
         dateStr: secToDateKstStr(takeoffSec),
         hasAbsoluteTime: gpsEpochOffsetMs !== null,
+        gpsEpochOffsetMs,
         firmwareStr,
         hardwareStr,
         frameInfo,
