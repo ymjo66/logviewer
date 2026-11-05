@@ -1,0 +1,35 @@
+FMT, 10, 19, CTUN, Qff, TimeUS,Alt,ThO
+FMT, 11, 24, GPS, QBfff, TimeUS,I,Lat,Lng,Alt
+FMT, 12, 13, MAG, QBB, TimeUS,I,Health
+FMT, 13, 16, ORGN, QBf, TimeUS,Type,Alt
+FMT, 14, 16, STAK, QBf, TimeUS,Id,Total
+FMT, 15, 23, POS, Qfff, TimeUS,Alt,RelHomeAlt,RelOriginAlt
+FMT, 16, 15, AHR2, Qf, TimeUS,Alt
+FMT, 17, 15, DU32, QI, TimeUS,Value
+FMT, 18, 44, FMTU, QBNN, TimeUS,FmtType,UnitIds,MultIds
+FMT, 19, 76, UNIT, QBZ, TimeUS,Id,Label
+UNIT, 0, 109, m
+FMTU, 0, 11, s#DDm, F0000
+FMTU, 0, 12, s#-, F00
+FMTU, 0, 13, s#m, F00
+FMTU, 0, 14, s#-, F00
+FMTU, 0, 15, smmm, F000
+FMTU, 0, 16, sm, F0
+CTUN, 0, 0, 0
+CTUN, 1000000, 1, 0.5
+GPS, 0, 0, 37.3, 126.6, 100
+GPS, 1000000, 0, 37.3, 126.6, 101
+MAG, 0, 0, 1
+MAG, 0, 1, 0
+MAG, 1000000, 0, 1
+MAG, 1000000, 1, 1
+ORGN, 0, 0, 100
+ORGN, 0, 1, 101
+STAK, 0, 0, 1024
+STAK, 0, 10, 2048
+STAK, 0, 11, 4096
+POS, 0, 100, 0, 0
+POS, 1000000, 101, 1, 1
+AHR2, 0, 100
+AHR2, 1000000, 101
+DU32, 0, 3

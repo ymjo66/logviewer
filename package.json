@@ -1,0 +1,19 @@
+{
+  "name": "logviewer",
+  "version": "1.0.1",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "description": "Offline ArduPilot log viewer with portable HTML and Windows WebView2 application",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "dev": "node scripts/dev.cjs",
+    "test": "node scripts/build.cjs && node tests/standalone.cjs && node tests/export-battery.cjs && node tests/large-parser.cjs",
+    "build:exe": "node scripts/build-exe.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

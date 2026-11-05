@@ -1,0 +1,212 @@
+.workbench-nav {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #cbd5e1;color:#0f172a}
+.workbench-nav strong {font-size:17px}.workbench-nav span {display:block;font-size:12px;color:#64748b;margin-top:3px}
+.workbench-tabs {display:flex;gap:4px;background:#e2e8f0;padding:4px;border-radius:6px}
+.workbench-tabs button {padding:8px 14px;font-size:12px;border-radius:4px;color:#475569}
+.workbench-tabs button[aria-pressed=true] {background:#fff;color:#0f172a;box-shadow:0 1px 3px #94a3b8}
+#tabViewWorkspace[data-focus=charts] #routePane,#tabViewWorkspace[data-focus=route] #chartPane {display:none}
+#tabViewWorkspace[data-focus=charts] #chartPane,#tabViewWorkspace[data-focus=route] #routePane {grid-column:1 / -1}
+#tabViewWorkspace[data-focus=route] #routePane .relative.h-72 {height:520px}
+.axis-controls {background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:12px;color:#334155;font-size:12px}
+.axis-controls summary {cursor:pointer;font-weight:600}.axis-controls summary span {font-weight:400;color:#64748b;margin-left:10px}
+.axis-controls fieldset {margin:12px 0;border-top:1px solid #e2e8f0;padding-top:8px}.axis-controls legend {font-weight:600}
+.axis-controls label {display:inline-flex;align-items:center;gap:6px;margin:5px 12px 5px 0}
+.axis-controls input {width:95px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#0f172a}
+.axis-controls fieldset div>span {display:inline-block;width:56px}.axis-controls button {background:#0f172a;color:white;padding:7px 12px;border-radius:4px;margin:10px 6px 0 0}
+.axis-controls output {color:#b45309}.map-help {font-size:11px;color:#64748b;margin:0 0 8px}
+#gpsMapCanvas {cursor:grab}#gpsMapCanvas:active {cursor:grabbing}
+.dev-toolbar {padding:7px 20px;background:#fef3c7;color:#92400e;font-size:12px;display:flex;gap:8px;align-items:center}
+.glass-card {box-shadow:none!important;border-radius:7px!important;backdrop-filter:none!important}
+@media(max-width:700px){.workbench-nav{align-items:flex-start;flex-direction:column}.workbench-tabs{width:100%}.workbench-tabs button{flex:1;padding:8px}}
+
+/* Application shell: navigation and files stay separate from the active tool. */
+body {background:#f4f6f9!important;color:#172b44!important}
+body>header {position:sticky;top:0;padding:12px 24px!important;background:#fff!important;box-shadow:none;z-index:30}
+body>header>div {max-width:none!important;gap:20px!important}
+body>header h1 {font-size:17px!important;letter-spacing:-.5px}
+body>header p {display:none!important}
+body>header #btnOpenUbuntuGuide {display:none}
+body>header label[for=fileInput] {background:#243d5c!important;border-radius:5px!important}
+body>header #btnCopyLogbook {background:#f1f4f8!important;color:#243d5c!important;border:1px solid #d5dde7;box-shadow:none!important}
+body>header button {box-shadow:none!important;border-radius:5px!important}
+body>main#dropZone {padding:0!important;max-width:none!important}
+.analysis-shell:not(.hidden) {display:grid;grid-template-columns:238px minmax(0,1fr);min-height:calc(100vh - 74px);gap:0!important}
+.analysis-shell> * {margin:0!important;min-width:0}
+#analysisSidebar {background:#edf1f6;border-right:1px solid #d9e0e9;padding:26px 16px;position:sticky;top:74px;height:calc(100vh - 74px);overflow-y:auto}
+.sidebar-brand {display:flex;align-items:center;gap:11px;margin:0 6px 30px;color:#203955}
+.brand-mark {display:grid;place-items:center;background:#203955;color:white;width:35px;height:35px;font-size:22px;font-weight:700;border-radius:7px}
+.sidebar-brand strong {display:block;font-size:15px;letter-spacing:2px}.sidebar-brand small {font-size:8px;letter-spacing:1.6px;color:#76879b}
+.sidebar-label {font-size:10px;letter-spacing:1.3px;font-weight:600;color:#8190a4;margin:0 12px 10px}
+#analysisNavigation {display:flex;flex-direction:column;gap:5px}
+#analysisNavigation button.main-tab-btn {display:flex;align-items:center;justify-content:flex-start;width:100%;gap:12px;padding:12px!important;border-radius:5px!important;background:transparent!important;color:#586c84!important;box-shadow:none!important;font-size:13px;font-weight:500;white-space:nowrap;text-align:left}
+#analysisNavigation button[aria-current=page] {background:#fff!important;color:#183b63!important;box-shadow:0 2px 8px #263c5510!important;font-weight:700;border-left:3px solid #2b668f}
+.menu-number {font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c9aab}
+#analysisNavigation #diagAlertCountBadge {font-size:8px!important;margin-left:auto;padding:2px!important}
+.log-list-label {margin-top:32px}
+#sidebarLogCard {padding:0!important;background:transparent!important;border:0!important}
+#sidebarLogCard>div:first-child {padding:0 10px;gap:7px}
+#sidebarLogCard>div:first-child>div>span:first-child,#sidebarLogCard>div:first-child>div>span:last-child {display:none}
+#sidebarLogCard #attachedCountBadge {font-size:10px;color:#718198!important;font-weight:400}
+#sidebarLogCard label {font-size:10px}
+#multiLogListContainer {max-height:none!important;border:0!important;background:transparent!important;margin-top:8px}
+#multiLogListContainer>div {display:flex;align-items:flex-start;flex-direction:column;gap:7px;padding:12px 10px!important;border:1px solid #d7e0eb!important;border-radius:5px;margin-bottom:8px;background:#ffffff80!important}
+#multiLogListContainer>div.bg-sky-500\/15 {background:white!important;border-left:3px solid #2b668f!important}
+#multiLogListContainer>div>div {flex-wrap:wrap;font-size:10px}
+#multiLogListContainer .max-w-\[165px\] {max-width:165px;font-size:11px}
+#analysisMain {padding:22px 28px 36px;min-width:0}
+#analysisMain> * {margin-top:0;margin-bottom:20px}
+#activeLogBar {border-radius:5px!important;padding:10px 14px!important;box-shadow:none!important;background:#fff!important;gap:8px!important}
+#activeLogBar #verdictBadge {font-size:10px;padding:4px 8px;border-radius:4px}
+#activeLogBar #sourceModeBadge,#activeLogBar #firmwareDisplay {display:none}
+#activeLogBar #fileSizeDisplay {display:block;margin:2px 0 0!important;font-size:10px}
+#activeLogBar #fileNameDisplay {font-size:12px}
+.workbench-nav {padding:2px 0 18px;margin-bottom:16px;border-bottom:1px solid #dce3eb;align-items:flex-end}
+.section-eyebrow {display:block!important;font-size:9px!important;font-weight:600;letter-spacing:2px;color:#7890a7!important;margin-bottom:6px}
+.workbench-nav strong,.page-heading h2 {display:block;font-size:25px;font-weight:650;letter-spacing:-1px;color:#203955;margin:0}
+.workbench-nav span:not(.section-eyebrow),.page-heading p {font-size:12px;color:#7b8ba0;margin-top:6px}
+.quick-zoom {max-width:440px;justify-content:flex-end}
+.quick-zoom>span {display:none}.quick-zoom button {font-size:10px!important;border-radius:4px!important}
+#workbenchGrid {display:block!important}
+#chartPane,#routePane {min-width:0}
+#chartPane {gap:14px!important}
+#chartPane>.glass-card {background:#fff!important;padding:16px!important;border-color:#dce3eb!important}
+#chartShortcuts {background:transparent!important;border:0!important;gap:5px;flex-wrap:wrap}
+#chartShortcuts #scenarioBarLabel {display:none!important}
+#chartShortcuts button {font-size:10px;padding:5px 9px!important;border-radius:3px!important}
+.primary-chart-frame {height:clamp(300px,40vh,480px)!important;min-height:300px;width:100%;position:relative;flex-shrink:0;background:white!important}
+.secondary-chart-frame {height:220px!important;min-height:220px;width:100%;position:relative;flex-shrink:0;background:white!important}
+.primary-chart-frame canvas,.secondary-chart-frame canvas {display:block;width:100%!important;height:100%!important}
+#chartHoverReadout {display:block;font-size:10px;max-width:48%;text-align:right;line-height:1.6}
+.axis-controls {padding:10px 13px;border-color:#dce3eb}
+.axis-controls form {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.axis-controls form>p,.axis-controls form>div {grid-column:1 / -1}
+.axis-controls fieldset div>span {display:block}.axis-controls input {width:80px}
+.field-explorer-panel {border:1px solid #dce3eb;border-radius:5px;background:white;padding:12px 16px;font-size:12px;font-weight:600;color:#3c536f}
+.field-explorer-panel>summary {cursor:pointer}.field-explorer-panel>summary>span {font-size:10px;font-weight:400;color:#8795a8;margin-left:10px}
+.field-explorer-panel>.glass-card {border:0!important;padding:16px 0 0!important}
+#routePane>.glass-card {padding:18px!important;background:white!important;border-color:#dce3eb!important}
+#tabViewWorkspace[data-focus=route] #routePane .relative.h-72 {height:clamp(360px,53vh,640px)}
+.overview-page {display:flex;flex-direction:column;gap:20px}.overview-page.hidden {display:none}
+.overview-page>section {gap:16px}.overview-page>.glass-card {padding:20px!important;background:white!important}
+#emptyUploadSection {max-width:780px;margin:70px auto!important;background:white!important;border:1px dashed #abbacf!important}
+.dev-toolbar {padding:4px 24px;font-size:10px;background:#e9eef4;color:#708096}
+.plot-display-controls {border-top:1px solid #e2e8f0;margin-top:16px;padding-top:12px;font-size:12px;color:#3c536f}
+.plot-display-controls>summary {cursor:pointer;font-weight:600;margin-bottom:10px}.plot-display-controls>summary span {font-size:10px;font-weight:400;color:#8795a8;margin-left:8px}
+.plot-display-controls>div {margin-top:10px}
+.plot-display-controls>.quick-zoom {justify-content:flex-start}
+#sidebarLogCard #btnClearAllLogs {margin-top:10px;font-size:10px;padding:5px 8px;border-color:#d5dde7;color:#7c899a!important;background:transparent!important}
+.main-chart-heading {line-height:1.6;margin-bottom:8px!important}
+.secondary-chart-heading {align-items:flex-start!important;gap:10px;margin-top:18px!important;flex-wrap:wrap}
+.secondary-chart-heading>div {flex-wrap:wrap!important}.secondary-chart-heading select {max-width:100%;font-size:10px!important}
+.secondary-chart-heading>span {display:none}
+.primary-chart-frame {padding:6px!important}
+.workbench-nav {margin-bottom:14px;padding-bottom:12px}
+#analysisSidebar {scrollbar-width:thin}
+@media(max-width:1100px){.analysis-shell:not(.hidden){grid-template-columns:190px minmax(0,1fr)}#analysisSidebar{padding:22px 10px}#analysisMain{padding:18px}.workbench-nav{align-items:flex-start;flex-direction:column}.quick-zoom{justify-content:flex-start;margin-top:12px}.axis-controls form{grid-template-columns:1fr}.axis-controls fieldset{margin:3px 0}#chartHoverReadout{display:none}}
+@media(max-width:680px){.analysis-shell:not(.hidden){display:block}#analysisSidebar{position:static;height:auto;border-right:0;border-bottom:1px solid #d9e0e9;padding:12px}.sidebar-brand,.sidebar-label{display:none}#analysisNavigation{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}#analysisNavigation button.main-tab-btn{padding:8px!important;font-size:11px;gap:5px}#sidebarLogCard{margin-top:10px}#multiLogListContainer{display:flex;overflow-x:auto;gap:8px}#multiLogListContainer>div{min-width:170px;margin:0}#analysisMain{padding:14px}body>header{padding:10px!important}#chartTitleLabel{font-size:11px}.primary-chart-frame{height:320px!important}}
+
+/* The trajectory is a persistent right-hand companion to every analysis view. */
+.analysis-shell:not(.hidden) {display:grid;grid-template-columns:210px minmax(340px,1fr) 300px}
+#analysisMain {padding:20px;min-width:0}
+#loadedWorkspaceContainer>#routePane {display:flex!important;position:sticky;top:80px;align-self:start;height:calc(100vh - 90px);overflow-y:auto;gap:12px;padding:18px 12px;background:#edf1f6;border-left:1px solid #d9e0e9;scrollbar-width:thin}
+#loadedWorkspaceContainer>#routePane>.glass-card {padding:10px!important}
+#routePane .relative.h-72 {height:270px!important;min-height:240px}
+#routePane h3 {font-size:11px!important}#routePane .map-help {font-size:10px;line-height:1.6}
+.csv-open-button {width:100%;margin-top:12px;padding:9px;border:1px solid #bdcad9;background:#fff;color:#23486a;font-size:11px;font-weight:600;border-radius:4px}
+#csvExportDialog {width:min(720px,95vw);max-height:88vh;margin:auto;border:1px solid #cbd5e1;border-radius:9px;padding:24px;color:#243d5c;background:white;overflow:auto;box-shadow:0 12px 60px #172c4555}
+#csvExportDialog::backdrop {background:#14283e77}
+.csv-dialog-heading {display:flex;justify-content:space-between;align-items:center}.csv-dialog-heading h2 {font-size:22px;font-weight:650}
+.csv-dialog-heading>button {font-size:25px;padding:0 8px}.csv-export-form>p {font-size:12px;color:#718198;margin:12px 0 20px}
+.csv-export-form fieldset {border-top:1px solid #dce3eb;padding-top:10px;margin-top:14px}.csv-export-form legend {font-size:13px;font-weight:650}
+.csv-export-form label {font-size:12px;display:inline-flex;gap:7px;align-items:center;padding:7px 12px 7px 0;overflow-wrap:anywhere}
+#csvLogChoices {display:flex;flex-direction:column;max-height:130px;overflow:auto}
+#csvColumnChoices {display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.csv-bulk {display:flex;gap:8px}.csv-bulk button {font-size:11px;background:#edf1f6;padding:5px 9px;border-radius:3px}
+.csv-dialog-actions {display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.csv-dialog-actions button {padding:8px 14px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px}.csv-dialog-actions #csvSave {background:#243d5c;color:white}
+#csvExportStatus {display:block;font-size:12px;margin-top:10px;color:#9b5c11}
+#csvRangeLabel[hidden] {display:none!important}
+.sidebar-logo {width:35px;height:35px;object-fit:contain;padding:3px;background:white;border:1px solid #d6dfe8;border-radius:6px}
+#routePane #btnPlayPause,#routePane #btnResetMapZoom {flex-shrink:0;white-space:nowrap}
+#analysisSidebar .sidebar-brand {margin-bottom:18px}
+#analysisSidebar .log-list-label {margin-top:0}
+#analysisSidebar>#sidebarLogCard {margin-bottom:16px}
+#multiLogListContainer>div {position:relative;display:block!important;padding:7px 10px!important;min-height:54px}
+#multiLogListContainer>div>div:first-child {display:flex;flex-wrap:wrap;gap:5px;padding-right:16px}
+#multiLogListContainer>div>div:first-child>span:first-child {display:none}
+#multiLogListContainer>div>div:first-child>span:nth-child(2) {flex-basis:100%;max-width:100%;font-size:11px;margin-bottom:3px}
+#multiLogListContainer>div>div:nth-child(2) {display:contents}
+#multiLogListContainer>div>div:nth-child(2)>div,#multiLogListContainer>div>div:nth-child(2)>span,#multiLogListContainer [data-copy-single] {display:none!important}
+#multiLogListContainer [data-remove-log] {position:absolute;top:9px;right:6px;background:transparent!important;padding:0 3px}
+@media(min-width:1101px){#analysisSidebar{grid-column:1;grid-row:1;padding:18px 12px}#analysisMain{grid-column:2;grid-row:1}#loadedWorkspaceContainer>#routePane{grid-column:3;grid-row:1}#multiLogListContainer{max-height:182px!important;overflow-y:auto!important}}
+@media(max-width:1100px){.analysis-shell:not(.hidden){grid-template-columns:minmax(340px,1fr) 270px;min-width:620px}#analysisSidebar{grid-column:1 / -1;position:static;height:auto;padding:10px 14px;border-right:0;border-bottom:1px solid #d9e0e9}.sidebar-brand,.sidebar-label{display:none}#analysisNavigation{display:flex;flex-direction:row;flex-wrap:wrap}#analysisNavigation button.main-tab-btn{width:auto;padding:8px 10px!important;font-size:11px}#sidebarLogCard{margin-top:8px}#multiLogListContainer{display:flex;gap:8px;overflow-x:auto;max-height:140px!important}#multiLogListContainer>div{min-width:180px;margin-bottom:0}#loadedWorkspaceContainer>#routePane{grid-column:2;grid-row:2;top:80px;padding:14px 8px}#analysisMain{grid-column:1;grid-row:2;padding:14px}#csvColumnChoices{grid-template-columns:repeat(2,minmax(0,1fr))}.csv-open-button{width:auto;padding:6px 12px;margin-right:10px}#multiLogListContainer>div>div{gap:4px}}
+
+/* Neutral workspace, dark navigation, and vertically arranged flight instruments. */
+body {background:#dfe2e6!important}
+#analysisMain {background:#dfe2e6}
+#loadedWorkspaceContainer>#routePane {background:#d6dae0;border-color:#c5cbd3}
+#analysisSidebar {background:#1e2229!important;border-color:#303641!important;color:#e5e9ef}
+#analysisSidebar .sidebar-brand strong {color:#f2f4f8}
+#analysisSidebar .sidebar-brand small,#analysisSidebar .sidebar-label {color:#8f9aa9!important}
+#analysisSidebar #sidebarLogCard {background:transparent!important}
+#analysisSidebar #attachedCountBadge {color:#9ca7b5!important}
+#analysisSidebar #multiLogListContainer {background:transparent!important}
+#analysisSidebar #multiLogListContainer>div {background:#292f38!important;border-color:#3b4451!important}
+#analysisSidebar #multiLogListContainer>div.bg-sky-500\/15 {background:#353f4c!important;border-left-color:#65a9d7!important}
+#analysisSidebar #multiLogListContainer .font-semibold.text-white {color:#e6edf5!important}
+#analysisSidebar [data-remove-log] {color:#a7b2bf!important}
+#analysisSidebar #analysisNavigation button.main-tab-btn {color:#b6c1ce!important}
+#analysisSidebar #analysisNavigation button[aria-current=page] {color:#fff!important;background:#353f4c!important;border-left-color:#65a9d7!important}
+#analysisSidebar .menu-number {color:#8391a2}
+#analysisSidebar .csv-open-button {background:#303946;color:#dce7f3;border-color:#49576a}
+#analysisSidebar #sidebarLogCard #btnClearAllLogs {color:#9aa6b6!important;border-color:#3b4451}
+.preset-toolbar {padding:10px 12px;background:#f3f4f6;border:1px solid #cbd0d8;border-radius:6px}
+.preset-toolbar #presetButtonsContainer {display:flex;flex-wrap:wrap;gap:6px}
+.preset-toolbar button {font-size:11px!important;padding:7px 10px!important;border-radius:4px!important}
+#routePane .hud-stack {display:flex!important;flex-direction:column;align-items:stretch;gap:10px}
+#routePane .hud-stage {width:100%;height:155px;flex-shrink:0;border-radius:5px}
+#routePane .hud-readouts {width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+#routePane .hud-readouts>div {padding:8px!important;min-width:0;background:#eef0f3!important}
+#routePane .hud-readouts .font-bold {font-size:12px;line-height:1.6;white-space:normal}
+#routePane #hudMotorText {display:block;overflow-wrap:anywhere;text-align:right;font-size:10px}
+#routePane .replay-panel {padding:10px!important;background:#eef0f3!important;margin-top:10px}
+#routePane .replay-toolbar {display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-bottom:8px}
+#routePane .replay-toolbar>div:first-child {display:flex;justify-content:space-between;gap:8px}
+#routePane .replay-toolbar>div:last-child {display:flex;justify-content:space-between;align-items:center;gap:4px;text-align:left}
+#routePane #scrubberTimeKST {font-size:11px;white-space:nowrap}#routePane #scrubberTimeBoot {font-size:10px;white-space:nowrap;margin:0}
+#routePane .replay-labels {display:grid;grid-template-columns:1fr 1fr;gap:5px;font-size:9px}
+#routePane #scrubberPhaseStatus {grid-column:1 / -1;grid-row:2;text-align:center;line-height:1.5}
+#routePane #scrubberEndLabel {text-align:right}
+#routePane #playbackSpeedSelect {flex:1;min-width:0;max-width:100px}
+
+/* Unified dark workspace; the app header deliberately retains its light theme. */
+body,body>main#dropZone,#analysisMain,#analysisSidebar,#loadedWorkspaceContainer>#routePane {background:#1e2229!important;color:#e5e9ef!important}
+.dev-toolbar {background:#1e2229;color:#a8b0bc}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) .glass-card,
+#activeLogBar,#chartPane>.glass-card,#routePane>.glass-card,.axis-controls,.preset-toolbar,.field-explorer-panel,#emptyUploadSection,#csvExportDialog,
+.primary-chart-frame,.secondary-chart-frame,#routePane .replay-panel,#routePane .hud-readouts>div {
+  background:#1e2229!important;border-color:#3c434e!important;color:#dfe5ed!important;
+}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.bg-slate-950,.bg-slate-900,.bg-slate-800,.bg-slate-900\/90,.bg-slate-950\/80,.bg-slate-950\/90,.bg-slate-950\/60,.bg-slate-900\/85,.bg-slate-900\/95) {background-color:#1e2229!important;border-color:#3c434e!important;color:#e0e5ec!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.text-white,.text-slate-100,.text-slate-200,.text-slate-300) {color:#e5e9ef!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) .text-slate-400 {color:#a7b0bd!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.text-sky-300,.text-sky-400,.text-sky-200) {color:#a4c8e8!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.text-emerald-300,.text-emerald-400) {color:#8bd6b7!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.text-amber-300,.text-amber-400) {color:#e7c27e!important}
+:is(#dropZone,#csvExportDialog,#settingsModal,#ubuntuGuideModal,#updateModal) :is(.text-rose-300,.text-rose-400) {color:#ed9fa9!important}
+.workbench-nav strong,.page-heading h2 {color:#f0f2f6}.workbench-nav,.plot-display-controls,.csv-export-form fieldset {border-color:#3c434e}
+.workbench-nav span:not(.section-eyebrow),.page-heading p,.axis-controls summary span,.field-explorer-panel>summary>span,.csv-export-form>p {color:#a3adbb}
+.section-eyebrow {color:#909eaf!important}
+:is(#dropZone,#csvExportDialog,#settingsModal) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea) {background:#292f38!important;color:#e7ebf1!important;border-color:#454e5c!important;color-scheme:dark}
+.axis-controls input {background:#292f38;color:#e5e9ef;border-color:#454e5c}
+.csv-bulk button,.csv-dialog-actions button {background:#303741;border-color:#4a5360;color:#e5e9ef}
+.csv-dialog-actions #csvSave,.axis-controls button {background:#c3c9d1;color:#252c35;border-color:#a5aeb9}
+:is(#dropZone,#csvExportDialog) input {accent-color:#b9c2ce}
+#dropZone .preset-btn.bg-sky-600,
+#dropZone :is(#btnTimeModeKST,#btnTimeModeBoot,#btnSampleNormal,#btnSampleVibe,#btnSampleGps).bg-sky-600,
+#analysisSidebar #analysisNavigation button[aria-current=page] {
+  background:#c3c9d1!important;color:#252c35!important;border-color:#a5aeb9!important;box-shadow:none!important;
+}
+#analysisSidebar #analysisNavigation button[aria-current=page] .menu-number {color:#4b5665}
+#analysisSidebar #multiLogListContainer>div.bg-sky-500\/15 {background:#353d48!important;border-left-color:#c3c9d1!important}
+#analysisSidebar label[for=fileInput] {color:#b8c5d4!important}
+.preset-toolbar button:not(.bg-sky-600) {background:#303741!important;color:#d8dfe8!important}
+.preset-toolbar button:not(.bg-sky-600):hover {background:#414a58!important}
