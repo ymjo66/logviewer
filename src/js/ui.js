@@ -1,4 +1,5 @@
     function renderMultiLogManager() {
+      refreshLogComparison();
       const emptySec = document.getElementById('emptyUploadSection');
       const loadedSec = document.getElementById('loadedWorkspaceContainer');
       document.getElementById('topAnalysisTools')?.classList.toggle('hidden',appState.logs.length===0);
@@ -78,6 +79,8 @@
 
         row.querySelector('[data-remove-log]').addEventListener('click', (e) => {
           e.stopPropagation();
+          if(idx===appState.activeLogIndex){mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;}
+          appState.logs[idx].parsedLog.releaseRawBytes?.();
           appState.logs.splice(idx, 1);
           if (appState.logs.length === 0) {
             appState.activeLogIndex = -1;
@@ -112,8 +115,18 @@
     }
 
     function selectLogByIndex(idx) {
+      const item=appState.logs[idx];if(!item)return Promise.resolve();
+      return queueLogTask(async()=>{const current=appState.logs.indexOf(item);if(current>=0)await activateLogByIndex(current);});
+    }
+
+    async function activateLogByIndex(idx) {
       if (idx < 0 || idx >= appState.logs.length) return;
       stopPlayback();
+      const item=appState.logs[idx];
+      // Chart datasets can retain views of the previous raw store. Those views
+      // remain valid, but only the newly selected store is resident in memory.
+      try{await item.parsedLog.ensureLoaded?.();}catch(error){showToast(`${item.fileName} — ${error.message}`);return;}
+      for(const log of appState.logs)if(log!==item)log.parsedLog.releaseRawBytes?.();
       appState.activeLogIndex = idx;
       appState.mapView = createMapView(appState.mapView?.mode||'2d');
       appState.zoomWindow = null;
@@ -772,6 +785,7 @@
       if(label)label.textContent=`${file.name} · 전체 데이터 분석 중`;
       await new Promise(resolve=>setTimeout(resolve,0));
       const analysis=analyzeParsedLog(parsedLog,appState.config);
+      analysis.timeline._packed?.backend.compact();
       return {fileName:file.name,parsedLog,analysis};
     }
 
@@ -786,7 +800,42 @@
       }
     }
 
-    async function handleMultipleFilesUpload(fileList) {
+    let uploadQueue=Promise.resolve();
+    function queueLogTask(action){
+      const task=uploadQueue.then(async()=>{
+        document.body?.setAttribute('aria-busy','true');
+        const main=document.getElementById('dropZone'),nav=document.getElementById('topAnalysisTools');
+        if(main)main.inert=true;if(nav)nav.inert=true;
+        try{return await action();}finally{if(main)main.inert=false;if(nav)nav.inert=false;document.body?.removeAttribute('aria-busy');}
+      });
+      uploadQueue=task.catch(error=>{console.error(error);showToast(`로그 처리 실패: ${error.message||error}`);});
+      return task;
+    }
+    function handleMultipleFilesUpload(fileList) {
+      const files=Array.from(fileList||[]);
+      return queueLogTask(()=>processMultipleFilesUpload(files));
+    }
+
+    async function reanalyzeAllLogs(){
+      for(const item of appState.logs){
+        await item.parsedLog.ensureLoaded?.();
+        try{item.analysis=analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact();}
+        finally{if(item!==appState.logs[appState.activeLogIndex])item.parsedLog.releaseRawBytes?.();}
+        await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      if(appState.logs.length)await activateLogByIndex(Math.max(0,appState.activeLogIndex));
+    }
+
+    function renderUploadReport(report) {
+      let panel=document.getElementById('uploadResultReport');
+      if(!panel){panel=document.createElement('details');panel.id='uploadResultReport';panel.style.cssText='margin:12px;padding:12px;border:1px solid #596170;border-radius:6px;color:white;overflow-wrap:anywhere';document.getElementById('uploadProgressBanner').after(panel);}
+      panel.replaceChildren();panel.open=report.failures.length>0;
+      const summary=document.createElement('summary');summary.textContent=`불러오기 결과: 선택 ${report.selected}개 · 성공 ${report.loaded}개 · 실패 ${report.failures.length}개${Number.isFinite(report.totalBytes)?' · 원본 '+(report.totalBytes/1024**3).toFixed(2)+' GiB':''}`;panel.append(summary);
+      for(const failure of report.failures){const row=document.createElement('p');row.textContent=`${failure.fileName} — ${failure.message}`;panel.append(row);}
+      if(!report.failures.length){const row=document.createElement('p');row.textContent='선택한 모든 파일을 불러왔습니다. 고정된 개수 제한은 없으며 전체 용량에 따라 사용 가능한 메모리의 영향을 받습니다.';panel.append(row);}
+    }
+
+    async function processMultipleFilesUpload(fileList) {
       if (!fileList || fileList.length === 0) return;
       stopPlayback();
       // Copy FileList BEFORE resetting input value, and sort by filename ascending
@@ -808,6 +857,7 @@
       }
 
       const newlyParsed = [];
+      const failures=[];
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
         if (banner) {
@@ -820,11 +870,17 @@
         await new Promise(resolve => setTimeout(resolve, 15));
         try {
           const item = await readSingleFilePromise(f);
+          item.parsedLog.releaseRawBytes?.();
           newlyParsed.push(item);
         } catch (err) {
           console.error(err);
+          failures.push({fileName:f.name,message:err?.message||String(err)});
         }
       }
+
+      const report={selected:files.length,totalBytes:files.reduce((n,file)=>n+file.size,0),loaded:newlyParsed.length,failures};
+      appState.lastUploadReport=report;
+      renderUploadReport(report);
 
       if (banner) {
         progBar.style.width = '100%';
@@ -840,8 +896,8 @@
       appState.logs.push(...newlyParsed);
       sortLogsByFileName();
       const firstNewIdx = Math.max(0, appState.logs.indexOf(newlyParsed[0]));
-      selectLogByIndex(firstNewIdx);
-      showToast(`총 ${newlyParsed.length}개 로그가 이름순으로 정렬되어 첨부되었습니다!`);
+      await activateLogByIndex(firstNewIdx);
+      showToast(`선택 ${files.length}개 · 성공 ${newlyParsed.length}개 · 실패 ${failures.length}개${failures.length?' — 불러오기 결과에서 파일별 원인을 확인하세요.':''}`);
     }
 
     function stopPlayback() {
@@ -908,6 +964,8 @@
 
       document.getElementById('btnClearAllLogs').addEventListener('click', () => {
         stopPlayback();
+        mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
+        for(const item of appState.logs)item.parsedLog.releaseRawBytes?.();
         appState.logs = [];
         appState.activeLogIndex = -1;
         appState.parsedLog = null;
@@ -931,13 +989,7 @@
       document.getElementById('altSourceSelect').addEventListener('change', (e) => {
         appState.altSourceMode = e.target.value;
         if (appState.logs.length > 0) {
-          appState.logs.forEach(item => {
-            item.analysis = analyzeParsedLog(item.parsedLog, appState.config);
-          });
-          appState.analysis = appState.logs[appState.activeLogIndex].analysis;
-          renderMultiLogManager();
-          renderAllViews();
-          showToast('고도 기준 소스를 변경하여 전체 로그를 재계산했습니다.');
+          queueLogTask(async()=>{await reanalyzeAllLogs();showToast('고도 기준 소스를 변경하여 전체 로그를 재계산했습니다.');});
         }
       });
 
@@ -1139,13 +1191,7 @@
         modal.classList.add('hidden');
         modal.classList.remove('flex');
         if (appState.logs.length > 0) {
-          appState.logs.forEach(item => {
-            item.analysis = analyzeParsedLog(item.parsedLog, appState.config);
-          });
-          appState.analysis = appState.logs[appState.activeLogIndex].analysis;
-          renderMultiLogManager();
-          renderAllViews();
-          showToast('진단 기준이 적용되어 첨부된 모든 로그를 재분석했습니다.');
+          queueLogTask(async()=>{await reanalyzeAllLogs();showToast('진단 기준이 적용되어 첨부된 모든 로그를 재분석했습니다.');});
         }
       });
 

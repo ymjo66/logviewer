@@ -209,7 +209,14 @@ function setupAnalysisShell(workspace, heading) {
   topTools.setAttribute('aria-label','분석 도구'); topTools.append(menu);
   toolLabel.remove();
   const headerRow=document.querySelector('header>div');
+  headerRow.classList.add('app-header-row');
+  headerRow.firstElementChild.classList.add('app-brand');
+  headerRow.lastElementChild.classList.add('header-actions');
   headerRow.insertBefore(topTools,headerRow.lastElementChild);
+  // Sticky panels must follow the actual header height, including font/DPI changes.
+  const syncHeaderHeight=()=>document.documentElement.style.setProperty('--app-header-height',`${Math.ceil(headerRow.parentElement.getBoundingClientRect().height)}px`);
+  new ResizeObserver(syncHeaderHeight).observe(headerRow.parentElement);
+  syncHeaderHeight();
   loaded.append(sidebar,main,routePanel);
   loaded.classList.add('analysis-shell');
   // Task shortcuts belong with the charts, leaving the app header for files/settings.
@@ -265,4 +272,5 @@ function setupAnalysisShell(workspace, heading) {
   const count=document.createElement('p');count.id='fieldCatalogCount';count.className='text-xs text-slate-400 my-2';
   fields.querySelector('#customFieldExplorer').before(count);
   setupCsvExport(logCard);
+  setupLogComparison();
 }

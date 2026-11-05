@@ -33,3 +33,37 @@ header>div>div:last-child {grid-column:3;justify-self:end}
 #sidebarFieldExplorer #customFieldExplorer {display:block;max-height:none;padding:0;margin-top:10px}
 #sidebarFieldExplorer #customFieldExplorer>div {margin-bottom:6px}
 @media(max-width:1100px){.analysis-shell:not(.hidden){grid-template-columns:210px minmax(340px,1fr) 270px;min-width:840px}#analysisSidebar{position:sticky}#analysisMain{grid-column:2!important}#loadedWorkspaceContainer>#routePane{grid-column:3!important}#multiLogListContainer{display:block;max-height:150px!important}#multiLogListContainer>div{min-width:0;margin-bottom:6px}.csv-open-button{width:100%}}
+
+/* Explicit slots prevent native actions from creating an implicit second row. */
+:root {--app-header-height:64px}
+.capacity-notice {margin:10px 16px;padding:10px 14px;border:1px solid #6c6245;border-radius:6px;background:#302d25;color:#eee3c7;font-size:12px}
+.capacity-notice p {margin:4px 0;line-height:1.5}
+.capacity-notice output {display:block;color:#d0c5ad;font-size:11px}
+.log-comparison {margin-top:18px;padding:16px;min-width:0}
+.log-comparison h3 {font-size:17px;font-weight:700;color:white}
+.log-comparison p {font-size:12px;color:#b6bfcb;margin:8px 0}
+.comparison-controls {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0;font-size:12px}
+.comparison-controls select,.comparison-controls button {background:#303844;color:white;border:1px solid #566071;padding:6px 8px;border-radius:4px}
+.comparison-log-choices {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));max-height:160px;overflow-y:auto;gap:6px;margin-bottom:10px}
+.comparison-log-choices label {display:flex;align-items:center;gap:7px;font-size:11px;overflow-wrap:anywhere;color:#dbe2ed;padding:5px}
+.comparison-log-choices input {flex-shrink:0}
+#comparisonStatus {display:block;margin:8px 0;font-size:12px;color:#e1e7ee;overflow-wrap:anywhere;max-height:100px;overflow-y:auto}
+.comparison-frame {height:420px;padding:12px;background:white;border-radius:5px;min-width:0;overflow-x:auto}
+.comparison-chart-surface {height:100%;position:relative}
+#comparisonMetricChoices {display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0;padding:10px;border:1px solid #4b5563;border-radius:5px;color:#dbe2ed;font-size:12px}
+#comparisonMetricChoices label {display:flex;align-items:center;gap:5px}
+.comparison-frame canvas {touch-action:none}
+body[aria-busy=true] {cursor:progress}
+body[aria-busy=true] main,body[aria-busy=true] #topAnalysisTools,body[aria-busy=true] #btnOpenSettings {pointer-events:none}
+body>header>.app-header-row {display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(8px,1.2vw,20px)!important}
+.app-header-row>.app-brand {grid-column:1;grid-row:1;min-width:0;white-space:nowrap}
+.app-header-row>#topAnalysisTools {grid-column:2;grid-row:1;min-width:0;order:initial;flex-basis:auto;margin:0;overflow-x:auto;scrollbar-width:thin}
+.app-header-row>.header-actions,.app-header-row>.desktop-actions {grid-column:3;grid-row:1;justify-self:end;white-space:nowrap}
+.app-header-row>.header-actions[hidden] {display:none!important}
+#topAnalysisTools #analysisNavigation {display:flex;flex-wrap:nowrap;justify-content:safe center;gap:clamp(2px,.65vw,10px)}
+#topAnalysisTools #analysisNavigation button.main-tab-btn {flex-shrink:0;white-space:nowrap;font-size:clamp(11px,1.05vw,14px)!important;padding:10px clamp(7px,1vw,16px)!important}
+#analysisSidebar {top:var(--app-header-height);height:calc(100dvh - var(--app-header-height))}
+#loadedWorkspaceContainer>#routePane {top:var(--app-header-height);height:calc(100dvh - var(--app-header-height) - 10px)}
+.analysis-shell:not(.hidden) {min-height:calc(100dvh - var(--app-header-height))}
+@media(max-width:1150px){body>header{padding:10px 12px!important}.desktop-actions{gap:4px!important}.desktop-window-controls{margin-left:0!important}.desktop-window-controls button{width:36px!important}.app-header-row>.app-brand{gap:7px!important}body>header h1{font-size:15px!important}}
+@media(max-width:850px){.app-header-row>.app-brand h1{display:none}#topAnalysisTools #analysisNavigation button.main-tab-btn{padding:9px 7px!important;font-size:11px!important}}

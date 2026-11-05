@@ -15,9 +15,11 @@ async function main(){
   const quote=s=>"'"+s.replace(/'/g,"''")+"'";
   execFileSync('powershell.exe',['-NoProfile','-Command',`Expand-Archive -LiteralPath ${quote(zip)} -DestinationPath ${quote(sdk)} -Force`],{stdio:'inherit',windowsHide:true});
  }
- fs.writeFileSync('artifacts/Version.cs',`[assembly: System.Reflection.AssemblyVersion("${version}.0")]\n[assembly: System.Reflection.AssemblyFileVersion("${version}.0")]\n`);
+ fs.writeFileSync('artifacts/Version.cs',`[assembly: System.Reflection.AssemblyVersion("${version}.0")]\n[assembly: System.Reflection.AssemblyFileVersion("${version}.0")]\nnamespace LogViewer { internal static class BuildInfo { internal const string Utc = "${new Date().toISOString()}"; } }\n`);
  const csc=path.join(process.env.WINDIR,'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
- const args=['/nologo','/target:winexe','/platform:x64','/optimize+','/win32icon:assets\\LogViewer.ico','/out:dist\\LogViewer.exe',
+ const exeName=process.env.LOGVIEWER_EXE_NAME||'LogViewer.exe';
+ if(!/^LogViewer(?:-[a-z0-9]+)?\.exe$/i.test(exeName))throw Error('Invalid EXE output name');
+ const args=['/nologo','/target:winexe','/platform:x64','/optimize+','/win32icon:assets\\LogViewer.ico','/out:dist\\'+exeName,
   ...['System.Windows.Forms.dll','System.Drawing.dll','System.Net.Http.dll','System.Web.Extensions.dll'].map(s=>'/reference:'+s),
   ...['Core','WinForms'].map(s=>'/reference:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)),
   '/resource:dist\\LogViewer.html,ViewerHtml',
@@ -27,7 +29,7 @@ async function main(){
   'desktop\\Program.cs','artifacts\\Version.cs'];
  execFileSync(csc,args,{stdio:'inherit',windowsHide:true});
  fs.copyFileSync('assets/LogViewer.ico','dist/LogViewer.ico');
- const names=['LogViewer.html','LogViewer.exe','LogViewer.ico','THIRD_PARTY_NOTICES.txt'];
+ const names=['LogViewer.html',exeName,'LogViewer.ico','THIRD_PARTY_NOTICES.txt'];
  fs.writeFileSync('dist/SHA256SUMS.txt',names.map(n=>crypto.createHash('sha256').update(fs.readFileSync('dist/'+n)).digest('hex')+'  '+n).join('\n')+'\n');
  console.log('Built Windows x64 EXE, offline HTML and checksums.');
 }

@@ -17,6 +17,9 @@ window.addEventListener('DOMContentLoaded',()=>queueMicrotask(()=>{
   }
   const actions=document.createElement('div');actions.className='desktop-actions';
   actions.append(document.getElementById('btnOpenSettings'),controls);bar.append(actions);
+  // The settings button moved into native actions; keep the hidden file input
+  // available without leaving a fourth grid item in the three-column header.
+  bar.querySelector('.header-actions').hidden=true;
   header.addEventListener('pointerdown',e=>{
     if(e.button!==0||e.target.closest('button,input,select,label,a,summary'))return;
     e.preventDefault();host.postMessage(e.detail===2?'maximize':'drag');

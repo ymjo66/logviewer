@@ -33,8 +33,8 @@ namespace LogViewer {
     if(args.Length>1 && args[0]=="--verify-fallback")return StageUpdate(args[1],true);
     Cache=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LogViewer","app",VersionText+"-"+Hash(Resource("ViewerHtml")).Substring(0,12));
     Directory.CreateDirectory(Cache);
-    foreach(string name in new[]{"Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll"})File.WriteAllBytes(Path.Combine(Cache,name),Resource(name));
-    File.WriteAllBytes(Path.Combine(Cache,"index.html"),Resource("ViewerHtml"));
+    foreach(string name in new[]{"Microsoft.Web.WebView2.Core.dll","Microsoft.Web.WebView2.WinForms.dll","WebView2Loader.dll"})EnsureResourceFile(name,name);
+    EnsureResourceFile("index.html","ViewerHtml");
     AppDomain.CurrentDomain.AssemblyResolve+=(sender,eventArgs)=>{
      string name=new AssemblyName(eventArgs.Name).Name+".dll";
      return name=="Microsoft.Web.WebView2.Core.dll"||name=="Microsoft.Web.WebView2.WinForms.dll"?Assembly.LoadFrom(Path.Combine(Cache,name)):null;
@@ -44,6 +44,7 @@ namespace LogViewer {
    }catch(Exception error){MessageBox.Show(error.Message,"Log Viewer",MessageBoxButtons.OK,MessageBoxIcon.Error);return 1;}
   }
   [MethodImpl(MethodImplOptions.NoInlining)] static int StartWindow(){Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new ViewerForm());return 0;}
+  static void EnsureResourceFile(string name,string resource){var bytes=Resource(resource);string path=Path.Combine(Cache,name);if(File.Exists(path)&&Hash(File.ReadAllBytes(path))==Hash(bytes))return;File.WriteAllBytes(path,bytes);}
   internal static byte[] Resource(string name){using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream(name)){if(stream==null)throw new IOException("Missing embedded resource: "+name);using(var buffer=new MemoryStream()){stream.CopyTo(buffer);return buffer.ToArray();}}}
   internal static string Hash(byte[] bytes){using(var hash=SHA256.Create())return BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-","").ToLowerInvariant();}
   static int SelfTest(string path){
@@ -54,8 +55,12 @@ namespace LogViewer {
    var mock=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"assets\":[{\"name\":\"LogViewer.exe\",\"browser_download_url\":\"https://github.com/ymjo66/logviewer/releases/download/v1.0.2/LogViewer.exe\"}]}");
    bool assets=Updater.AssetUrl(mock,"LogViewer.exe").EndsWith("/LogViewer.exe");
    bool plans=Updater.ShouldInstall("v"+VersionText,VersionText,"new","old")&&!Updater.ShouldInstall("v"+VersionText,VersionText,"same","same")&&!Updater.ShouldInstall("v0.9.0",VersionText,"new","old")&&Updater.ShouldInstall(next,VersionText,"same","same");
-   File.WriteAllText(path,new JavaScriptSerializer().Serialize(new {version=VersionText,embeddedHtml=resource,versionComparison=versions,checksumManifest=checksums,releaseAssets=assets,sameVersionReplacement=plans}),Encoding.UTF8);
-   return resource&&versions&&checksums&&assets&&plans?0:1;
+   bool buildOrder=!Updater.HasNewerBuild(mock);
+   var mockAsset=(Dictionary<string,object>)((System.Collections.IEnumerable)mock["assets"]).Cast<object>().First();
+   mockAsset["updated_at"]="2000-01-01T00:00:00Z";buildOrder=buildOrder&&!Updater.HasNewerBuild(mock);
+   mockAsset["updated_at"]="2099-01-01T00:00:00Z";buildOrder=buildOrder&&Updater.HasNewerBuild(mock);
+   File.WriteAllText(path,new JavaScriptSerializer().Serialize(new {version=VersionText,embeddedHtml=resource,versionComparison=versions,checksumManifest=checksums,releaseAssets=assets,sameVersionReplacement=plans,olderBuildRejected=buildOrder}),Encoding.UTF8);
+   return resource&&versions&&checksums&&assets&&plans&&buildOrder?0:1;
   }
   static int VerifyRelease(string path){try{var result=Updater.VerifyLatest().GetAwaiter().GetResult();File.WriteAllText(path,new JavaScriptSerializer().Serialize(result),Encoding.UTF8);return 0;}catch(Exception error){File.WriteAllText(path,new JavaScriptSerializer().Serialize(new {error=error.Message}),Encoding.UTF8);return 1;}}
   static int StageUpdate(string path,bool fallback=false){try{var release=(fallback?Updater.LatestFromWebsite():Updater.Latest()).GetAwaiter().GetResult();var staged=Updater.Download(release).GetAwaiter().GetResult();File.WriteAllText(path,new JavaScriptSerializer().Serialize(new {tag=(string)release["tag_name"],source=fallback?"website-fallback":"api",downloaded=true,checksumVerified=Hash(File.ReadAllBytes(staged.Item1))==staged.Item2,bytes=new FileInfo(staged.Item1).Length}),Encoding.UTF8);return 0;}catch(Exception error){File.WriteAllText(path,new JavaScriptSerializer().Serialize(new {error=error.Message}),Encoding.UTF8);return 1;}}
@@ -120,6 +125,7 @@ namespace LogViewer {
     Version offered;if(!Version.TryParse(tag.TrimStart('v','V'),out offered))throw new IOException("릴리즈 버전 형식 오류");
     if(offered<new Version(Program.VersionText)){SetUpdateState("current","현재 설치된 버전을 유지합니다");return;}
     if(!Updater.IsNewer(tag,Program.VersionText)){
+     if(!Updater.HasNewerBuild(release)){SetUpdateState("current","현재 수정본을 유지합니다 · 더 오래된 동일 버전은 적용하지 않습니다");return;}
      string remoteHash=await Updater.ReleaseChecksum(release);
      if(!Updater.ShouldInstall(tag,Program.VersionText,remoteHash,Program.Hash(File.ReadAllBytes(Application.ExecutablePath)))){SetUpdateState("current","최신 배포 파일을 사용 중입니다");return;}
     }
@@ -142,6 +148,16 @@ namespace LogViewer {
   internal static void Log(string stage,string message){try{string dir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"LogViewer");Directory.CreateDirectory(dir);string path=Path.Combine(dir,"update.log");if(File.Exists(path)&&new FileInfo(path).Length>262144)File.Copy(path,path+".previous",true);if(File.Exists(path)&&new FileInfo(path).Length>262144)File.WriteAllText(path,"");File.AppendAllText(path,DateTime.UtcNow.ToString("o")+" ["+stage+"] "+message.Replace("\r"," ").Replace("\n"," ")+Environment.NewLine,Encoding.UTF8);}catch(Exception){}}
   internal static bool IsNewer(string tag,string current){Version next,old;return !tag.Contains("-")&&Version.TryParse(tag.TrimStart('v','V'),out next)&&Version.TryParse(current,out old)&&next>old;}
   internal static bool ShouldInstall(string tag,string current,string remoteHash,string localHash){Version next,old;return !tag.Contains("-")&&Version.TryParse(tag.TrimStart('v','V'),out next)&&Version.TryParse(current,out old)&&(next>old||next==old&&!String.Equals(remoteHash,localHash,StringComparison.OrdinalIgnoreCase));}
+  internal static bool HasNewerBuild(Dictionary<string,object> release){
+   DateTime built=DateTime.Parse(BuildInfo.Utc,null,System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();
+   foreach(var entry in (System.Collections.IEnumerable)release["assets"]){
+    var asset=(Dictionary<string,object>)entry;object timestamp;DateTime uploaded;
+    if((string)asset["name"]=="LogViewer.exe"&&asset.TryGetValue("updated_at",out timestamp)&&DateTime.TryParse(Convert.ToString(timestamp),null,System.Globalization.DateTimeStyles.RoundtripKind,out uploaded))return uploaded.ToUniversalTime()>built;
+   }
+   // The website fallback has no asset date; do not replace an equal version
+   // when its build order cannot be established. Higher versions still update.
+   return false;
+  }
   static HttpClient Client(int seconds=60){var client=new HttpClient();client.Timeout=TimeSpan.FromSeconds(seconds);client.DefaultRequestHeaders.UserAgent.ParseAdd("LogViewer/"+Program.VersionText);client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");client.DefaultRequestHeaders.CacheControl=new System.Net.Http.Headers.CacheControlHeaderValue{NoCache=true};return client;}
   static async Task<T> Retry<T>(Func<Task<T>> action){
    Exception last=null;

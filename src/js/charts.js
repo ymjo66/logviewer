@@ -4,7 +4,7 @@
     const flightMilestonePlugin = {
       id: 'flightMilestones',
       afterDraw(chart) {
-        if(chart.canvas.id==='timelineOverviewChart')return;
+        if(chart.canvas.id!=='mainTelemetryChart')return;
         const a = appState.analysis;
         if (!a || !a.timeline.length) return;
         const { ctx, chartArea, scales } = chart;
@@ -164,7 +164,7 @@
     Chart.register(flightMilestonePlugin, dragZoomOverlayPlugin, {
       id:'manualAxisLimits',
       beforeUpdate(chart) {
-        if(chart.canvas.id==='timelineOverviewChart')return;
+        if(chart.canvas.id!=='mainTelemetryChart')return;
         const group = chart.canvas.id === 'mainTelemetryChart' ? 'main' : 'secondary';
         if (group === 'main' && appState.customFields.length) return;
         for (const axis of ['y','y1']) {

@@ -34,8 +34,9 @@ function packedRows(backend, selection=null) {
 }
 
 function createColumnRows(computed={}) {
-  const BLOCK=8192,columns=new Map();
+  const BLOCK=1024,columns=new Map();
   const backend={length:0,
+    compact(){for(const col of columns.values()){const b=col.values.length-1;if(b<0)continue;const used=Math.min(BLOCK,this.length-b*BLOCK);if(used>0&&used<BLOCK){col.values[b]=col.values[b].slice(0,used);col.flags[b]=col.flags[b].slice(0,used);}}},
     keys(){return [...columns.keys(),...Object.keys(computed)];},
     get(i,key){if(computed[key])return computed[key](backend.get(i,'sec'));
       const col=columns.get(key),block=Math.floor(i/BLOCK),j=i%BLOCK;if(!col||!col.flags[block])return undefined;
@@ -45,6 +46,7 @@ function createColumnRows(computed={}) {
       if(!columns.has(key))columns.set(key,{values:[],flags:[],strings:[],intern:new Map()});
       const col=columns.get(key),b=Math.floor(i/BLOCK),j=i%BLOCK;
       if(!col.values[b]){col.values[b]=new Float64Array(BLOCK);col.flags[b]=new Uint8Array(BLOCK);}
+      else if(j>=col.values[b].length){const values=new Float64Array(BLOCK),flags=new Uint8Array(BLOCK);values.set(col.values[b]);flags.set(col.flags[b]);col.values[b]=values;col.flags[b]=flags;}
       let kind=0,n=0;
       if(typeof value==='number'){kind=1;n=value;}else if(value===null)kind=2;else if(typeof value==='string'){kind=3;if(!col.intern.has(value)){col.intern.set(value,col.strings.length);col.strings.push(value);}n=col.intern.get(value);}else if(typeof value==='boolean')kind=value?5:4;
       else if(value!==undefined)throw Error('Unsupported packed value');

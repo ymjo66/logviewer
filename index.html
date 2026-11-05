@@ -854,6 +854,40 @@ header>div>div:last-child {grid-column:3;justify-self:end}
 #sidebarFieldExplorer #customFieldExplorer>div {margin-bottom:6px}
 @media(max-width:1100px){.analysis-shell:not(.hidden){grid-template-columns:210px minmax(340px,1fr) 270px;min-width:840px}#analysisSidebar{position:sticky}#analysisMain{grid-column:2!important}#loadedWorkspaceContainer>#routePane{grid-column:3!important}#multiLogListContainer{display:block;max-height:150px!important}#multiLogListContainer>div{min-width:0;margin-bottom:6px}.csv-open-button{width:100%}}
 
+/* Explicit slots prevent native actions from creating an implicit second row. */
+:root {--app-header-height:64px}
+.capacity-notice {margin:10px 16px;padding:10px 14px;border:1px solid #6c6245;border-radius:6px;background:#302d25;color:#eee3c7;font-size:12px}
+.capacity-notice p {margin:4px 0;line-height:1.5}
+.capacity-notice output {display:block;color:#d0c5ad;font-size:11px}
+.log-comparison {margin-top:18px;padding:16px;min-width:0}
+.log-comparison h3 {font-size:17px;font-weight:700;color:white}
+.log-comparison p {font-size:12px;color:#b6bfcb;margin:8px 0}
+.comparison-controls {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0;font-size:12px}
+.comparison-controls select,.comparison-controls button {background:#303844;color:white;border:1px solid #566071;padding:6px 8px;border-radius:4px}
+.comparison-log-choices {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));max-height:160px;overflow-y:auto;gap:6px;margin-bottom:10px}
+.comparison-log-choices label {display:flex;align-items:center;gap:7px;font-size:11px;overflow-wrap:anywhere;color:#dbe2ed;padding:5px}
+.comparison-log-choices input {flex-shrink:0}
+#comparisonStatus {display:block;margin:8px 0;font-size:12px;color:#e1e7ee;overflow-wrap:anywhere;max-height:100px;overflow-y:auto}
+.comparison-frame {height:420px;padding:12px;background:white;border-radius:5px;min-width:0;overflow-x:auto}
+.comparison-chart-surface {height:100%;position:relative}
+#comparisonMetricChoices {display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0;padding:10px;border:1px solid #4b5563;border-radius:5px;color:#dbe2ed;font-size:12px}
+#comparisonMetricChoices label {display:flex;align-items:center;gap:5px}
+.comparison-frame canvas {touch-action:none}
+body[aria-busy=true] {cursor:progress}
+body[aria-busy=true] main,body[aria-busy=true] #topAnalysisTools,body[aria-busy=true] #btnOpenSettings {pointer-events:none}
+body>header>.app-header-row {display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:clamp(8px,1.2vw,20px)!important}
+.app-header-row>.app-brand {grid-column:1;grid-row:1;min-width:0;white-space:nowrap}
+.app-header-row>#topAnalysisTools {grid-column:2;grid-row:1;min-width:0;order:initial;flex-basis:auto;margin:0;overflow-x:auto;scrollbar-width:thin}
+.app-header-row>.header-actions,.app-header-row>.desktop-actions {grid-column:3;grid-row:1;justify-self:end;white-space:nowrap}
+.app-header-row>.header-actions[hidden] {display:none!important}
+#topAnalysisTools #analysisNavigation {display:flex;flex-wrap:nowrap;justify-content:safe center;gap:clamp(2px,.65vw,10px)}
+#topAnalysisTools #analysisNavigation button.main-tab-btn {flex-shrink:0;white-space:nowrap;font-size:clamp(11px,1.05vw,14px)!important;padding:10px clamp(7px,1vw,16px)!important}
+#analysisSidebar {top:var(--app-header-height);height:calc(100dvh - var(--app-header-height))}
+#loadedWorkspaceContainer>#routePane {top:var(--app-header-height);height:calc(100dvh - var(--app-header-height) - 10px)}
+.analysis-shell:not(.hidden) {min-height:calc(100dvh - var(--app-header-height))}
+@media(max-width:1150px){body>header{padding:10px 12px!important}.desktop-actions{gap:4px!important}.desktop-window-controls{margin-left:0!important}.desktop-window-controls button{width:36px!important}.app-header-row>.app-brand{gap:7px!important}body>header h1{font-size:15px!important}}
+@media(max-width:850px){.app-header-row>.app-brand h1{display:none}#topAnalysisTools #analysisNavigation button.main-tab-btn{padding:9px 7px!important;font-size:11px!important}}
+
 </style>
 <style id="uav-chart-style">
 #chartPane #uavPlotCard {background:#fff!important;border:0!important;border-radius:0!important;color:#222!important;padding:16px 12px!important}
@@ -1950,8 +1984,9 @@ function packedRows(backend, selection=null) {
 }
 
 function createColumnRows(computed={}) {
-  const BLOCK=8192,columns=new Map();
+  const BLOCK=1024,columns=new Map();
   const backend={length:0,
+    compact(){for(const col of columns.values()){const b=col.values.length-1;if(b<0)continue;const used=Math.min(BLOCK,this.length-b*BLOCK);if(used>0&&used<BLOCK){col.values[b]=col.values[b].slice(0,used);col.flags[b]=col.flags[b].slice(0,used);}}},
     keys(){return [...columns.keys(),...Object.keys(computed)];},
     get(i,key){if(computed[key])return computed[key](backend.get(i,'sec'));
       const col=columns.get(key),block=Math.floor(i/BLOCK),j=i%BLOCK;if(!col||!col.flags[block])return undefined;
@@ -1961,6 +1996,7 @@ function createColumnRows(computed={}) {
       if(!columns.has(key))columns.set(key,{values:[],flags:[],strings:[],intern:new Map()});
       const col=columns.get(key),b=Math.floor(i/BLOCK),j=i%BLOCK;
       if(!col.values[b]){col.values[b]=new Float64Array(BLOCK);col.flags[b]=new Uint8Array(BLOCK);}
+      else if(j>=col.values[b].length){const values=new Float64Array(BLOCK),flags=new Uint8Array(BLOCK);values.set(col.values[b]);flags.set(col.flags[b]);col.values[b]=values;col.flags[b]=flags;}
       let kind=0,n=0;
       if(typeof value==='number'){kind=1;n=value;}else if(value===null)kind=2;else if(typeof value==='string'){kind=3;if(!col.intern.has(value)){col.intern.set(value,col.strings.length);col.strings.push(value);}n=col.intern.get(value);}else if(typeof value==='boolean')kind=value?5:4;
       else if(value!==undefined)throw Error('Unsupported packed value');
@@ -1983,6 +2019,7 @@ function mapPlotRows(rows,fn) {
 function binaryField(store,offset,type) {
   const size=FORMAT_SIZES[type],block=Math.floor(offset/store.chunkSize);
   let at=offset%store.chunkSize,dv=store.views[block];
+  if(!dv)throw Error('원본 파일을 먼저 다시 읽어야 합니다. 로그를 다시 선택해 주세요.');
   if(at+size>dv.byteLength){const bytes=store.bytes(offset,size);dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);at=0;}
   switch(type){
     case 'b':return dv.getInt8(at);case 'B':case 'M':return dv.getUint8(at);
@@ -1998,8 +2035,10 @@ function binaryField(store,offset,type) {
   }
 }
 function createBinaryTable(store,fileSize) {
-  const BLOCK=65536,offsets=[],definitions=[];let cachedIndex=-1,cachedPosition,cachedSchema;
+  const BLOCK=4096,offsets=[],definitions=[];let cachedIndex=-1,cachedPosition,cachedSchema;
   const backend={length:0,
+    get storageBytes(){return offsets.reduce((sum,block)=>sum+block.byteLength,0);},
+    compact(){const tail=this.length%BLOCK;if(tail&&offsets.length)offsets[offsets.length-1]=offsets[offsets.length-1].slice(0,tail);},
     addSchema(schema){definitions.push(schema);},
     schema(i){const position=offsets[Math.floor(i/BLOCK)][i%BLOCK];let lo=0,hi=definitions.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(definitions[mid].start<=position)lo=mid;else hi=mid-1;}return {position,schema:definitions[lo]};},
     keys(i){return this.schema(i).schema.fields.map(f=>f.name);},
@@ -2044,7 +2083,27 @@ async function parseDataFlashFile(file,onProgress=()=>{},options={}) {
     if(options.yieldEvery!==0)await new Promise(resolve=>setTimeout(resolve,0));
   }
   const fmtList=[fmt,...definitions].filter((f,i,all)=>all.findIndex(s=>s.name===f.name&&s.format===f.format&&s.columns.join(',')===f.columns.join(','))===i);
-  return {fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed',retainedBytes:file.size};
+  for(const rows of Object.values(tables))rows._packed.backend.compact();
+  let loading=null;
+  const parsed={fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed',
+    get retainedBytes(){return chunks.reduce((n,chunk)=>n+chunk.byteLength,0);},
+    releaseRawBytes(){if(loading)throw Error('원본 파일을 읽는 중에는 캐시를 해제할 수 없습니다.');chunks.length=0;views.length=0;},
+    async ensureLoaded(progress=()=>{}){
+      if(loading)return loading;
+      if(chunks.length===Math.ceil(file.size/chunkSize))return;
+      loading=(async()=>{try{
+        chunks.length=0;views.length=0;
+        for(let start=0;start<file.size;start+=chunkSize){
+          const bytes=new Uint8Array(await file.slice(start,Math.min(file.size,start+chunkSize)).arrayBuffer());
+          if(bytes.length!==Math.min(chunkSize,file.size-start))throw Error('원본 파일 길이가 변경되었습니다. 파일을 다시 첨부해 주세요.');
+          chunks.push(bytes);views.push(new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength));
+          progress((start+bytes.length)/file.size,'선택한 원본 파일 다시 읽기');
+        }
+      }catch(error){chunks.length=0;views.length=0;throw error;}})();
+      try{await loading;}finally{loading=null;}
+    }
+  };
+  return parsed;
 }
 
 async function parseTextFileChunks(file,onProgress,chunkSize) {
@@ -2062,6 +2121,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     carry=text.slice(first);onProgress(Math.min(1,(start+bytes.byteLength)/file.size),'전체 텍스트 패킷 해석');await new Promise(resolve=>setTimeout(resolve,0));
   }
   carry+=decoder.decode();if(carry)line(carry);
+  for(const rows of Object.values(tables))rows._packed.backend.compact();
   return {fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed'};
 }
 
@@ -3314,7 +3374,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     const flightMilestonePlugin = {
       id: 'flightMilestones',
       afterDraw(chart) {
-        if(chart.canvas.id==='timelineOverviewChart')return;
+        if(chart.canvas.id!=='mainTelemetryChart')return;
         const a = appState.analysis;
         if (!a || !a.timeline.length) return;
         const { ctx, chartArea, scales } = chart;
@@ -3474,7 +3534,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     Chart.register(flightMilestonePlugin, dragZoomOverlayPlugin, {
       id:'manualAxisLimits',
       beforeUpdate(chart) {
-        if(chart.canvas.id==='timelineOverviewChart')return;
+        if(chart.canvas.id!=='mainTelemetryChart')return;
         const group = chart.canvas.id === 'mainTelemetryChart' ? 'main' : 'secondary';
         if (group === 'main' && appState.customFields.length) return;
         for (const axis of ['y','y1']) {
@@ -4439,6 +4499,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     }
 
     function renderMultiLogManager() {
+      refreshLogComparison();
       const emptySec = document.getElementById('emptyUploadSection');
       const loadedSec = document.getElementById('loadedWorkspaceContainer');
       document.getElementById('topAnalysisTools')?.classList.toggle('hidden',appState.logs.length===0);
@@ -4518,6 +4579,8 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
 
         row.querySelector('[data-remove-log]').addEventListener('click', (e) => {
           e.stopPropagation();
+          if(idx===appState.activeLogIndex){mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;}
+          appState.logs[idx].parsedLog.releaseRawBytes?.();
           appState.logs.splice(idx, 1);
           if (appState.logs.length === 0) {
             appState.activeLogIndex = -1;
@@ -4552,8 +4615,18 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     }
 
     function selectLogByIndex(idx) {
+      const item=appState.logs[idx];if(!item)return Promise.resolve();
+      return queueLogTask(async()=>{const current=appState.logs.indexOf(item);if(current>=0)await activateLogByIndex(current);});
+    }
+
+    async function activateLogByIndex(idx) {
       if (idx < 0 || idx >= appState.logs.length) return;
       stopPlayback();
+      const item=appState.logs[idx];
+      // Chart datasets can retain views of the previous raw store. Those views
+      // remain valid, but only the newly selected store is resident in memory.
+      try{await item.parsedLog.ensureLoaded?.();}catch(error){showToast(`${item.fileName} — ${error.message}`);return;}
+      for(const log of appState.logs)if(log!==item)log.parsedLog.releaseRawBytes?.();
       appState.activeLogIndex = idx;
       appState.mapView = createMapView(appState.mapView?.mode||'2d');
       appState.zoomWindow = null;
@@ -5212,6 +5285,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       if(label)label.textContent=`${file.name} · 전체 데이터 분석 중`;
       await new Promise(resolve=>setTimeout(resolve,0));
       const analysis=analyzeParsedLog(parsedLog,appState.config);
+      analysis.timeline._packed?.backend.compact();
       return {fileName:file.name,parsedLog,analysis};
     }
 
@@ -5226,7 +5300,42 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       }
     }
 
-    async function handleMultipleFilesUpload(fileList) {
+    let uploadQueue=Promise.resolve();
+    function queueLogTask(action){
+      const task=uploadQueue.then(async()=>{
+        document.body?.setAttribute('aria-busy','true');
+        const main=document.getElementById('dropZone'),nav=document.getElementById('topAnalysisTools');
+        if(main)main.inert=true;if(nav)nav.inert=true;
+        try{return await action();}finally{if(main)main.inert=false;if(nav)nav.inert=false;document.body?.removeAttribute('aria-busy');}
+      });
+      uploadQueue=task.catch(error=>{console.error(error);showToast(`로그 처리 실패: ${error.message||error}`);});
+      return task;
+    }
+    function handleMultipleFilesUpload(fileList) {
+      const files=Array.from(fileList||[]);
+      return queueLogTask(()=>processMultipleFilesUpload(files));
+    }
+
+    async function reanalyzeAllLogs(){
+      for(const item of appState.logs){
+        await item.parsedLog.ensureLoaded?.();
+        try{item.analysis=analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact();}
+        finally{if(item!==appState.logs[appState.activeLogIndex])item.parsedLog.releaseRawBytes?.();}
+        await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      if(appState.logs.length)await activateLogByIndex(Math.max(0,appState.activeLogIndex));
+    }
+
+    function renderUploadReport(report) {
+      let panel=document.getElementById('uploadResultReport');
+      if(!panel){panel=document.createElement('details');panel.id='uploadResultReport';panel.style.cssText='margin:12px;padding:12px;border:1px solid #596170;border-radius:6px;color:white;overflow-wrap:anywhere';document.getElementById('uploadProgressBanner').after(panel);}
+      panel.replaceChildren();panel.open=report.failures.length>0;
+      const summary=document.createElement('summary');summary.textContent=`불러오기 결과: 선택 ${report.selected}개 · 성공 ${report.loaded}개 · 실패 ${report.failures.length}개${Number.isFinite(report.totalBytes)?' · 원본 '+(report.totalBytes/1024**3).toFixed(2)+' GiB':''}`;panel.append(summary);
+      for(const failure of report.failures){const row=document.createElement('p');row.textContent=`${failure.fileName} — ${failure.message}`;panel.append(row);}
+      if(!report.failures.length){const row=document.createElement('p');row.textContent='선택한 모든 파일을 불러왔습니다. 고정된 개수 제한은 없으며 전체 용량에 따라 사용 가능한 메모리의 영향을 받습니다.';panel.append(row);}
+    }
+
+    async function processMultipleFilesUpload(fileList) {
       if (!fileList || fileList.length === 0) return;
       stopPlayback();
       // Copy FileList BEFORE resetting input value, and sort by filename ascending
@@ -5248,6 +5357,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       }
 
       const newlyParsed = [];
+      const failures=[];
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
         if (banner) {
@@ -5260,11 +5370,17 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         await new Promise(resolve => setTimeout(resolve, 15));
         try {
           const item = await readSingleFilePromise(f);
+          item.parsedLog.releaseRawBytes?.();
           newlyParsed.push(item);
         } catch (err) {
           console.error(err);
+          failures.push({fileName:f.name,message:err?.message||String(err)});
         }
       }
+
+      const report={selected:files.length,totalBytes:files.reduce((n,file)=>n+file.size,0),loaded:newlyParsed.length,failures};
+      appState.lastUploadReport=report;
+      renderUploadReport(report);
 
       if (banner) {
         progBar.style.width = '100%';
@@ -5280,8 +5396,8 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       appState.logs.push(...newlyParsed);
       sortLogsByFileName();
       const firstNewIdx = Math.max(0, appState.logs.indexOf(newlyParsed[0]));
-      selectLogByIndex(firstNewIdx);
-      showToast(`총 ${newlyParsed.length}개 로그가 이름순으로 정렬되어 첨부되었습니다!`);
+      await activateLogByIndex(firstNewIdx);
+      showToast(`선택 ${files.length}개 · 성공 ${newlyParsed.length}개 · 실패 ${failures.length}개${failures.length?' — 불러오기 결과에서 파일별 원인을 확인하세요.':''}`);
     }
 
     function stopPlayback() {
@@ -5348,6 +5464,8 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
 
       document.getElementById('btnClearAllLogs').addEventListener('click', () => {
         stopPlayback();
+        mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
+        for(const item of appState.logs)item.parsedLog.releaseRawBytes?.();
         appState.logs = [];
         appState.activeLogIndex = -1;
         appState.parsedLog = null;
@@ -5371,13 +5489,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       document.getElementById('altSourceSelect').addEventListener('change', (e) => {
         appState.altSourceMode = e.target.value;
         if (appState.logs.length > 0) {
-          appState.logs.forEach(item => {
-            item.analysis = analyzeParsedLog(item.parsedLog, appState.config);
-          });
-          appState.analysis = appState.logs[appState.activeLogIndex].analysis;
-          renderMultiLogManager();
-          renderAllViews();
-          showToast('고도 기준 소스를 변경하여 전체 로그를 재계산했습니다.');
+          queueLogTask(async()=>{await reanalyzeAllLogs();showToast('고도 기준 소스를 변경하여 전체 로그를 재계산했습니다.');});
         }
       });
 
@@ -5579,13 +5691,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         modal.classList.add('hidden');
         modal.classList.remove('flex');
         if (appState.logs.length > 0) {
-          appState.logs.forEach(item => {
-            item.analysis = analyzeParsedLog(item.parsedLog, appState.config);
-          });
-          appState.analysis = appState.logs[appState.activeLogIndex].analysis;
-          renderMultiLogManager();
-          renderAllViews();
-          showToast('진단 기준이 적용되어 첨부된 모든 로그를 재분석했습니다.');
+          queueLogTask(async()=>{await reanalyzeAllLogs();showToast('진단 기준이 적용되어 첨부된 모든 로그를 재분석했습니다.');});
         }
       });
 
@@ -5622,6 +5728,9 @@ window.addEventListener('DOMContentLoaded',()=>queueMicrotask(()=>{
   }
   const actions=document.createElement('div');actions.className='desktop-actions';
   actions.append(document.getElementById('btnOpenSettings'),controls);bar.append(actions);
+  // The settings button moved into native actions; keep the hidden file input
+  // available without leaving a fourth grid item in the three-column header.
+  bar.querySelector('.header-actions').hidden=true;
   header.addEventListener('pointerdown',e=>{
     if(e.button!==0||e.target.closest('button,input,select,label,a,summary'))return;
     e.preventDefault();host.postMessage(e.detail===2?'maximize':'drag');
@@ -5994,7 +6103,14 @@ function setupAnalysisShell(workspace, heading) {
   topTools.setAttribute('aria-label','분석 도구'); topTools.append(menu);
   toolLabel.remove();
   const headerRow=document.querySelector('header>div');
+  headerRow.classList.add('app-header-row');
+  headerRow.firstElementChild.classList.add('app-brand');
+  headerRow.lastElementChild.classList.add('header-actions');
   headerRow.insertBefore(topTools,headerRow.lastElementChild);
+  // Sticky panels must follow the actual header height, including font/DPI changes.
+  const syncHeaderHeight=()=>document.documentElement.style.setProperty('--app-header-height',`${Math.ceil(headerRow.parentElement.getBoundingClientRect().height)}px`);
+  new ResizeObserver(syncHeaderHeight).observe(headerRow.parentElement);
+  syncHeaderHeight();
   loaded.append(sidebar,main,routePanel);
   loaded.classList.add('analysis-shell');
   // Task shortcuts belong with the charts, leaving the app header for files/settings.
@@ -6050,7 +6166,130 @@ function setupAnalysisShell(workspace, heading) {
   const count=document.createElement('p');count.id='fieldCatalogCount';count.className='text-xs text-slate-400 my-2';
   fields.querySelector('#customFieldExplorer').before(count);
   setupCsvExport(logCard);
+  setupLogComparison();
 }
+
+// SPDX-License-Identifier: GPL-3.0-only
+const COMPARISON_METRICS=[
+  ['autoRelAlt','상대고도 (m)',['CTUN','POS','BARO','AHR2','GPS']],
+  ['spd','속도 (m/s)',['GPS']],['volt','배터리 전압 (V)',['BAT']],['curr','전류 (A)',['BAT']],
+  ['vibeX','진동 X (m/s²)',['VIBE']],['vibeY','진동 Y (m/s²)',['VIBE']],['vibeZ','진동 Z (m/s²)',['VIBE']],
+  ['roll','Roll (°)',['ATT','XKF1']],['pitch','Pitch (°)',['ATT','XKF1']],['yaw','Yaw (°)',['ATT','XKF1']],
+  ['thO','스로틀 (%)',['CTUN','RCOU']],['c1','모터 C1 (µs)',['RCOU']],['c2','모터 C2 (µs)',['RCOU']],
+  ['c3','모터 C3 (µs)',['RCOU']],['c4','모터 C4 (µs)',['RCOU']],['magPct','자기장 변동률 (%)',['MAG']],
+  ['nSats','GPS 위성 수',['GPS']],['hdop','HDOP',['GPS']]
+];
+let comparisonChart=null,comparisonChosen=new Set(),comparisonKnown=new Set(),comparisonVersions=new Map();
+const COMPARISON_SOURCE_FIELDS={autoRelAlt:['Alt','RelHomeAlt','RelOriginAlt'],spd:['Spd'],volt:['Volt'],curr:['Curr'],vibeX:['VibeX'],vibeY:['VibeY'],vibeZ:['VibeZ'],roll:['Roll'],pitch:['Pitch'],yaw:['Yaw'],thO:['ThO','C1'],c1:['C1'],c2:['C2'],c3:['C3'],c4:['C4'],magPct:['MagX','MagY','MagZ'],nSats:['NSats'],hdop:['HDop']};
+function comparisonColor(index){return `hsl(${(index*137.508)%360} 65% 40%)`;}
+function comparisonPoints(rows,key,offset,limit=1800){
+  const result=[],stride=Math.max(1,Math.ceil(rows.length/Math.max(1,Math.floor(limit/4))));
+  for(let start=0;start<rows.length;start+=stride){
+    let first,last,low,high,gap;
+    for(let i=start;i<Math.min(rows.length,start+stride);i++){
+      const row=rows[i],x=row.sec-offset,y=row[key];
+      if(!Number.isFinite(x))continue;
+      if(!Number.isFinite(y)){gap={x,y:null,index:i};continue;}
+      const point={x,y,index:i};first??=point;last=point;
+      if(!low||y<low.y)low=point;if(!high||y>high.y)high=point;
+    }
+    const points=[first,low,high,last,gap].filter(Boolean).sort((a,b)=>a.index-b.index);
+    let previous=-1;for(const point of points)if(point.index!==previous){result.push({x:point.x,y:point.y});previous=point.index;}
+  }
+  return result;
+}
+function buildLogComparison(logs,keys,alignment){
+  keys=[...new Set(Array.isArray(keys)?keys:[keys])];
+  if(!keys.length)throw Error('비교 항목을 하나 이상 선택하세요.');
+  const datasets=[],skipped=[],axes={};
+  for(const [metricIndex,key] of keys.entries()){
+  const metric=COMPARISON_METRICS.find(m=>m[0]===key);if(!metric)throw Error('지원하지 않는 비교 항목입니다.');
+  const axisID='compare_'+key;
+  for(const log of logs){
+    if(!metric[2].some(name=>log.parsedLog.tables[name]?.length&&log.parsedLog.fmtList.some(schema=>schema.name===name&&schema.columns.some(column=>COMPARISON_SOURCE_FIELDS[key].includes(column))))){skipped.push(`${log.fileName} · ${metric[1]}: 해당 필드 기록 없음`);continue;}
+    const offset=alignment==='takeoff'?log.analysis.sorties?.[0]?.takeoffSec:log.analysis.minSec;
+    if(!Number.isFinite(offset)){skipped.push(`${log.fileName}: 첫 이륙 미감지`);continue;}
+    const data=comparisonPoints(log.analysis.timeline,key,offset);
+    if(!data.some(point=>point.y!==null)){skipped.push(`${log.fileName}: 유효한 값 없음`);continue;}
+    axes[axisID]??={type:'linear',position:metricIndex%2?'right':'left',title:{display:true,text:metric[1]},ticks:{color:'#444'},grid:{color:'#e5e5e5',drawOnChartArea:Object.keys(axes).length===0}};
+    datasets.push({label:`${metric[1]} · ${log.fileName}`,logIndex:appState.logs.indexOf(log),metricKey:key,yAxisID:axisID,data,borderColor:comparisonColor(appState.logs.indexOf(log)),borderDash:[[],[7,3],[2,3],[9,3,2,3],[4,2]][metricIndex%5],borderWidth:1.2,pointRadius:0,pointHitRadius:5,fill:false,tension:0,spanGaps:false});
+  }
+  }
+  return {datasets,skipped,axes,title:keys.length===1?COMPARISON_METRICS.find(m=>m[0]===keys[0])[1]:'다중 항목 비교'};
+}
+function setupLogComparison(){
+  const notice=document.createElement('aside');notice.id='capacityNotice';notice.className='capacity-notice';
+  notice.innerHTML='<strong>대용량 로그 사용 안내</strong><p>현재 버전은 브라우저/WebView2 메모리 한계로 대용량·다중 로그 불러오기가 실패할 수 있습니다. 안정적인 최대 용량·파일 개수는 보장하지 않습니다. 실패하면 기존 Log Viewer 창을 모두 닫고 필요한 로그만 선택해 주세요.</p><output id="capacityTotals"></output>';
+  document.querySelector('header').after(notice);
+  const panel=document.createElement('section');panel.id='logComparisonPanel';panel.className='glass-card rounded-xl log-comparison';
+  panel.innerHTML='<h3>다중 로그 비교</h3><p>선택한 로그의 같은 항목을 공통 세로축으로 비교합니다. 분석 타임라인 기준이며 메인 차트의 범위와 독립적으로 동작합니다.</p><div class="comparison-controls"><label>비교 항목 <select id="comparisonMetric"></select></label><label>시간 기준 <select id="comparisonAlignment"><option value="start">각 로그 시작 = 0초</option><option value="takeoff">첫 이륙 = 0초</option></select></label><button type="button" id="comparisonSelectAll">전체 선택</button><button type="button" id="comparisonSelectNone">선택 해제</button><button type="button" id="comparisonDraw">비교하기</button><button type="button" id="comparisonReset">전체 범위</button></div><div id="comparisonLogChoices" class="comparison-log-choices"></div><output id="comparisonStatus" role="status">비교할 로그를 선택하세요.</output><div class="comparison-frame"><canvas id="logComparisonChart" aria-label="다중 로그 비교 그래프"></canvas></div><p>휠: 확대·축소 · 오른쪽 드래그: 시간축 이동 · 더블클릭: 전체 범위</p>';
+  document.getElementById('chartPane').append(panel);
+  const oldMetric=panel.querySelector('#comparisonMetric'),metricChoices=document.createElement('fieldset');metricChoices.id='comparisonMetricChoices';
+  const legend=document.createElement('legend');legend.textContent='비교 항목 (여러 개 선택 가능)';metricChoices.append(legend);oldMetric.parentElement.remove();panel.querySelector('.comparison-controls').before(metricChoices);
+  for(const [key,label] of COMPARISON_METRICS){const item=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='autoRelAlt';input.addEventListener('change',clearLogComparison);item.append(input,document.createTextNode(label));metricChoices.append(item);}
+  panel.querySelector('p').textContent='여러 항목을 선택해 로그별 색상·항목별 선 모양으로 비교합니다. 같은 항목은 공통 세로축, 다른 항목은 개별 세로축을 사용합니다. 분석 타임라인 기준입니다.';
+  const surface=document.createElement('div');surface.className='comparison-chart-surface';panel.querySelector('.comparison-frame').append(surface);surface.append(panel.querySelector('canvas'));
+  panel.querySelector('#comparisonSelectAll').addEventListener('click',()=>{comparisonChosen=new Set(appState.logs);refreshLogComparison(false);clearLogComparison();});
+  panel.querySelector('#comparisonSelectNone').addEventListener('click',()=>{comparisonChosen.clear();refreshLogComparison(false);clearLogComparison();});
+  panel.querySelector('#comparisonDraw').addEventListener('click',drawLogComparison);
+  panel.querySelector('#comparisonReset').addEventListener('click',resetComparisonRange);
+  panel.querySelector('#comparisonAlignment').addEventListener('change',clearLogComparison);
+  const canvas=panel.querySelector('canvas');let drag=null;
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  canvas.addEventListener('wheel',e=>{
+    if(!comparisonChart)return;e.preventDefault();const scale=comparisonChart.scales.x,rect=canvas.getBoundingClientRect();
+    const center=scale.getValueForPixel(e.clientX-rect.left),factor=e.deltaY<0?.8:1.25;
+    comparisonChart.options.scales.x.min=center-(center-scale.min)*factor;comparisonChart.options.scales.x.max=center+(scale.max-center)*factor;comparisonChart.update('none');
+  },{passive:false});
+  canvas.addEventListener('pointerdown',e=>{if(e.button!==2||!comparisonChart)return;e.preventDefault();drag={id:e.pointerId,x:e.clientX,min:comparisonChart.scales.x.min,max:comparisonChart.scales.x.max};canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId||!comparisonChart)return;const shift=(e.clientX-drag.x)*(drag.max-drag.min)/comparisonChart.chartArea.width;comparisonChart.options.scales.x.min=drag.min-shift;comparisonChart.options.scales.x.max=drag.max-shift;comparisonChart.update('none');});
+  const end=e=>{if(drag?.id===e.pointerId){drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);}};
+  canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);canvas.addEventListener('lostpointercapture',()=>drag=null);canvas.addEventListener('dblclick',resetComparisonRange);
+}
+function clearLogComparison(){comparisonChart?.destroy();comparisonChart=null;const status=document.getElementById('comparisonStatus');if(status)status.textContent='비교할 항목과 로그를 선택하고 비교하기를 눌러 주세요.';}
+function refreshLogComparison(invalidate=true){
+  const choices=document.getElementById('comparisonLogChoices');if(!choices)return;
+  const changed=appState.logs.length!==comparisonKnown.size||appState.logs.some(log=>!comparisonKnown.has(log)||comparisonVersions.get(log)!==log.analysis);
+  const current=new Set(appState.logs);comparisonChosen=new Set([...comparisonChosen].filter(log=>current.has(log)));
+  for(const log of appState.logs)if(!comparisonKnown.has(log)&&comparisonChosen.size<2)comparisonChosen.add(log);
+  comparisonKnown=current;
+  comparisonVersions=new Map(appState.logs.map(log=>[log,log.analysis]));
+  choices.replaceChildren();appState.logs.forEach((log,index)=>{
+    const label=document.createElement('label'),input=document.createElement('input'),dot=document.createElement('span');input.type='checkbox';input.checked=comparisonChosen.has(log);dot.style.color=comparisonColor(index);dot.textContent='●';
+    input.addEventListener('change',()=>{if(input.checked)comparisonChosen.add(log);else comparisonChosen.delete(log);clearLogComparison();});label.append(input,dot,document.createTextNode(log.fileName));label.title=log.fileName;choices.append(label);
+  });
+  const bytes=appState.logs.reduce((n,log)=>n+(log.parsedLog.byteLength||0),0);
+  document.getElementById('capacityTotals').textContent=`현재 첨부 ${appState.logs.length}개 · 원본 합계 ${(bytes/1024**3).toFixed(2)} GiB (실제 메모리 사용량과 다름)`;
+  if(invalidate&&changed)clearLogComparison();
+}
+function drawLogComparison(){
+  const status=document.getElementById('comparisonStatus');
+  try{
+    const keys=Array.from(document.querySelectorAll('#comparisonMetricChoices input:checked'),input=>input.value);
+    const result=buildLogComparison(appState.logs.filter(log=>comparisonChosen.has(log)),keys,document.getElementById('comparisonAlignment').value);
+    clearLogComparison();status.textContent=`${new Set(result.datasets.map(dataset=>dataset.logIndex)).size}개 로그 · ${Object.keys(result.axes).length}개 항목 · ${result.datasets.length}개 곡선${result.skipped.length?' · 제외: '+result.skipped.join(' / '):''}`;
+    if(!result.datasets.length)return;
+    document.querySelector('.comparison-chart-surface').style.minWidth=`${Math.max(620,500+Object.keys(result.axes).length*55)}px`;
+    comparisonChart=new Chart(document.getElementById('logComparisonChart').getContext('2d'),{
+      type:'line',data:{datasets:result.datasets},
+      options:{
+        responsive:true,maintainAspectRatio:false,animation:false,parsing:false,
+        interaction:{mode:'nearest',intersect:false},
+        plugins:{
+          flightMilestones:false,manualAxisLimits:false,flightModeSections:false,
+          legend:{position:'bottom',labels:{color:'#333',boxWidth:18,font:{size:10},generateLabels(chart){
+            return Chart.defaults.plugins.legend.labels.generateLabels(chart).map(label=>({...label,text:label.text.length>45?label.text.slice(0,42)+'…':label.text}));
+          }}}
+        },
+        scales:{
+          x:{type:'linear',title:{display:true,text:document.getElementById('comparisonAlignment').value==='takeoff'?'첫 이륙 기준 경과 시간 (초)':'로그 시작 기준 경과 시간 (초)'},ticks:{color:'#444'},grid:{color:'#e5e5e5'}},
+          ...result.axes
+        }
+      }
+    });
+  }catch(error){status.textContent=`비교 실패: ${error.message}`;}
+}
+function resetComparisonRange(){if(!comparisonChart)return;delete comparisonChart.options.scales.x.min;delete comparisonChart.options.scales.x.max;comparisonChart.update('none');}
 
 </script>
 
@@ -6062,7 +6301,7 @@ function setupAnalysisShell(workspace, heading) {
   <h2>오픈소스 라이선스</h2>
   <p>이 프로그램의 자체 코드는 GPL v3입니다. 수정·재배포할 수 있으며 보증은 제공되지 않습니다.</p>
   <p><a href="https://github.com/ymjo66/logviewer" target="_blank" rel="noopener" style="color:#075985;text-decoration:underline">소스코드 및 빌드 방법</a> · <a href="https://github.com/ymjo66/logviewer/releases" target="_blank" rel="noopener" style="color:#075985;text-decoration:underline">버전별 대응 소스</a></p>
-  <pre style="white-space:pre-wrap;font:12px/1.6 monospace;margin-top:18px">Log Viewer 1.0.1
+  <pre style="white-space:pre-wrap;font:12px/1.6 monospace;margin-top:18px">Log Viewer 1.0.2
 Copyright (C) 2026 ymjo66 and contributors
 Application source: GPL v3, with additional permission for Microsoft runtime integration (COPYING.md). Third-party components retain their own licenses.
 Source and build instructions: https://github.com/ymjo66/logviewer

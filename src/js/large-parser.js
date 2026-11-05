@@ -3,6 +3,7 @@
 function binaryField(store,offset,type) {
   const size=FORMAT_SIZES[type],block=Math.floor(offset/store.chunkSize);
   let at=offset%store.chunkSize,dv=store.views[block];
+  if(!dv)throw Error('원본 파일을 먼저 다시 읽어야 합니다. 로그를 다시 선택해 주세요.');
   if(at+size>dv.byteLength){const bytes=store.bytes(offset,size);dv=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);at=0;}
   switch(type){
     case 'b':return dv.getInt8(at);case 'B':case 'M':return dv.getUint8(at);
@@ -18,8 +19,10 @@ function binaryField(store,offset,type) {
   }
 }
 function createBinaryTable(store,fileSize) {
-  const BLOCK=65536,offsets=[],definitions=[];let cachedIndex=-1,cachedPosition,cachedSchema;
+  const BLOCK=4096,offsets=[],definitions=[];let cachedIndex=-1,cachedPosition,cachedSchema;
   const backend={length:0,
+    get storageBytes(){return offsets.reduce((sum,block)=>sum+block.byteLength,0);},
+    compact(){const tail=this.length%BLOCK;if(tail&&offsets.length)offsets[offsets.length-1]=offsets[offsets.length-1].slice(0,tail);},
     addSchema(schema){definitions.push(schema);},
     schema(i){const position=offsets[Math.floor(i/BLOCK)][i%BLOCK];let lo=0,hi=definitions.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(definitions[mid].start<=position)lo=mid;else hi=mid-1;}return {position,schema:definitions[lo]};},
     keys(i){return this.schema(i).schema.fields.map(f=>f.name);},
@@ -64,7 +67,27 @@ async function parseDataFlashFile(file,onProgress=()=>{},options={}) {
     if(options.yieldEvery!==0)await new Promise(resolve=>setTimeout(resolve,0));
   }
   const fmtList=[fmt,...definitions].filter((f,i,all)=>all.findIndex(s=>s.name===f.name&&s.format===f.format&&s.columns.join(',')===f.columns.join(','))===i);
-  return {fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed',retainedBytes:file.size};
+  for(const rows of Object.values(tables))rows._packed.backend.compact();
+  let loading=null;
+  const parsed={fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed',
+    get retainedBytes(){return chunks.reduce((n,chunk)=>n+chunk.byteLength,0);},
+    releaseRawBytes(){if(loading)throw Error('원본 파일을 읽는 중에는 캐시를 해제할 수 없습니다.');chunks.length=0;views.length=0;},
+    async ensureLoaded(progress=()=>{}){
+      if(loading)return loading;
+      if(chunks.length===Math.ceil(file.size/chunkSize))return;
+      loading=(async()=>{try{
+        chunks.length=0;views.length=0;
+        for(let start=0;start<file.size;start+=chunkSize){
+          const bytes=new Uint8Array(await file.slice(start,Math.min(file.size,start+chunkSize)).arrayBuffer());
+          if(bytes.length!==Math.min(chunkSize,file.size-start))throw Error('원본 파일 길이가 변경되었습니다. 파일을 다시 첨부해 주세요.');
+          chunks.push(bytes);views.push(new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength));
+          progress((start+bytes.length)/file.size,'선택한 원본 파일 다시 읽기');
+        }
+      }catch(error){chunks.length=0;views.length=0;throw error;}})();
+      try{await loading;}finally{loading=null;}
+    }
+  };
+  return parsed;
 }
 
 async function parseTextFileChunks(file,onProgress,chunkSize) {
@@ -82,5 +105,6 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     carry=text.slice(first);onProgress(Math.min(1,(start+bytes.byteLength)/file.size),'전체 텍스트 패킷 해석');await new Promise(resolve=>setTimeout(resolve,0));
   }
   carry+=decoder.decode();if(carry)line(carry);
+  for(const rows of Object.values(tables))rows._packed.backend.compact();
   return {fileName:file.name,byteLength:file.size,totalPackets,fmtList,tables,rawCounts,storage:'lossless-packed'};
 }

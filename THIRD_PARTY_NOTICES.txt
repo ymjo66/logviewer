@@ -1,4 +1,4 @@
-Log Viewer 1.0.1
+Log Viewer 1.0.2
 Copyright (C) 2026 ymjo66 and contributors
 Application source: GPL v3, with additional permission for Microsoft runtime integration (COPYING.md). Third-party components retain their own licenses.
 Source and build instructions: https://github.com/ymjo66/logviewer

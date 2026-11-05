@@ -19,6 +19,11 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   const actual=await parse(new Blob([bytes]),'boundary.bin',chunkSize);
   assert.deepEqual(plain(actual.tables),expected.tables,'every field / array / schema / unsafe integer matches at chunk size '+chunkSize);
   assert.equal(actual.totalPackets,expected.totalPackets);
+  for(const rows of Object.values(actual.tables))assert.equal(rows._packed.backend.storageBytes,rows.length*4,'packet indexes retain no unused capacity');
+  actual.releaseRawBytes();assert.equal(actual.retainedBytes,0);
+  assert.throws(()=>actual.tables.TEST[0].TimeUS,/원본 파일/);
+  await Promise.all([actual.ensureLoaded(),actual.ensureLoaded()]);assert.equal(actual.retainedBytes,bytes.length);
+  assert.deepEqual(plain(actual.tables),expected.tables,'reloading preserves every field across chunk boundaries');
  }
  const text=fs.readFileSync('tests/fixtures/synthetic-instances.log','utf8');context.text=text;
  const legacy=plain(vm.runInContext('parseDataFlashTextLog(text)',context));
@@ -30,6 +35,7 @@ const plain=value=>JSON.parse(JSON.stringify(value));
  const packed=vm.runInContext('createColumnRows()',context);packed.push({sec:1,x:NaN,z:null,s:'한글',large:9007199254740991});packed.push({sec:2,x:-0,z:2,s:'한글'});
  assert.ok(Number.isNaN(packed[0].x));assert.ok(Object.is(packed[1].x,-0));assert.equal(packed[0].z,null);assert.equal(packed[0].large,9007199254740991);packed[1].s='updated';assert.equal(packed.at(-1).s,'updated');
  assert.equal(packed.filter(r=>r.sec>1).length,1);assert.equal(packed.slice(1)[0].sec,2);assert.ok(packed.filter(()=>true).includes(packed[0]));
+ packed._packed.backend.compact();packed.push({sec:3,x:42,s:'after compact'});assert.equal(packed[2].x,42);assert.equal(packed[1].s,'updated');assert.equal(packed[2].s,'after compact');
  console.log('PASS: lossless BIN chunk boundaries, arrays, schema changes, 64-bit values, UTF-8 text, packed analysis and row views');
  const realAt=process.argv.indexOf('--real');
  if(realAt>=0){
@@ -45,6 +51,10 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   assert.equal(oldA.timeline.length,newA.timeline.length);
   for(let i=0;i<oldA.timeline.length;i++)assert.deepEqual(plain(newA.timeline[i]),plain(oldA.timeline[i]),'derived timeline '+i);
   assert.deepEqual(plain(newA.sorties),plain(oldA.sorties));assert.deepEqual(plain(newA.diagnostics),plain(oldA.diagnostics));
+  const indexes=Object.values(current.tables),previousBytes=indexes.reduce((n,rows)=>n+Math.ceil(rows.length/65536)*65536*4,0),currentBytes=indexes.reduce((n,rows)=>n+rows._packed.backend.storageBytes,0);
+  console.log('Packet index allocation:',JSON.stringify({previousBytes,currentBytes,savedBytes:previousBytes-currentBytes}));
+  current.releaseRawBytes();assert.equal(current.retainedBytes,0);await current.ensureLoaded();
+  assert.deepEqual(plain(current.tables),plain(old.tables),'real BIN complete original restored after cache eviction');
   console.log('PASS: real BIN every packet and field, complete derived timeline, sorties and diagnostics identical',JSON.stringify({packets,fields,timeline:newA.timeline.length}));
  }
  if(process.argv.includes('--stress')){
@@ -63,5 +73,15 @@ const plain=value=>JSON.parse(JSON.stringify(value));
   }
   const report={bytes:blob.size,packets:large.totalPackets,elapsedSeconds:(Date.now()-start)/1000,memory:process.memoryUsage(),heapLimitMb:require('node:v8').getHeapStatistics().heap_size_limit/1024/1024};
   fs.writeFileSync('artifacts/large-parser-stress.json',JSON.stringify(report,null,2));console.log('PASS: >800MB all packets preserved',JSON.stringify(report));
+ }
+ if(process.argv.includes('--reload-stress')){
+  const blob=await fs.openAsBlob('artifacts/large-parser-805MiB.bin'),large=await parse(blob,'large.bin',8*1024*1024);
+  assert.equal(large.totalPackets,10690561);assert.equal(large.retainedBytes,blob.size);
+  for(let cycle=0;cycle<3;cycle++){
+   large.releaseRawBytes();assert.equal(large.retainedBytes,0);await large.ensureLoaded();
+   assert.equal(large.retainedBytes,blob.size);assert.equal(large.tables.TEST[4321].Value,98765.25);assert.equal(large.tables.TEST.at(-1).TimeUS,(large.tables.TEST.length-1)*1000);
+  }
+  large.releaseRawBytes();assert.equal(large.retainedBytes,0);
+  console.log('PASS: 844,554,329-byte BIN / 10,690,561 packets, three full cache eviction/reload cycles');
  }
 })().catch(e=>{console.error(e);process.exitCode=1;});
