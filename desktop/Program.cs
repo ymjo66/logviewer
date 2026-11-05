@@ -59,14 +59,24 @@ namespace LogViewer {
 
  internal sealed class ViewerForm:Form {
   readonly WebView2 browser=new WebView2();
-  readonly ToolStripStatusLabel status=new ToolStripStatusLabel();
-  readonly ToolStripButton update=new ToolStripButton("업데이트 확인");
-  string readyFile,readyHash;bool checking;
+  string readyFile,readyHash,documentUrl;bool checking;
+  [DllImport("user32.dll")]static extern bool ReleaseCapture();
+  [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
   public ViewerForm(){
    Text="Log Viewer "+Program.VersionText;Width=1450;Height=950;MinimumSize=new Size(1000,700);StartPosition=FormStartPosition.CenterScreen;BackColor=Color.FromArgb(30,34,41);
-   browser.Dock=DockStyle.Fill;var bar=new StatusStrip();bar.SizingGrip=false;status.Text="v"+Program.VersionText;status.Spring=true;status.TextAlign=ContentAlignment.MiddleLeft;bar.Items.Add(status);bar.Items.Add(update);Controls.Add(browser);Controls.Add(bar);
-   update.Click+=async(sender,e)=>{if(readyFile!=null)RestartUpdate();else await CheckUpdates();};
+   var workArea=Screen.PrimaryScreen.WorkingArea;Size=new Size(Math.Min(Width,workArea.Width),Math.Min(Height,workArea.Height));
+   FormBorderStyle=FormBorderStyle.None;Padding=new Padding(5);
+   using(var stream=new MemoryStream(Program.Resource("ViewerIcon")))Icon=new Icon(stream);
+   browser.Dock=DockStyle.Fill;Controls.Add(browser);
    Shown+=async(sender,e)=>{await InitializeBrowser();await CheckUpdates();};
+   FormClosed+=(sender,e)=>ApplyReadyUpdate();
+  }
+  protected override void WndProc(ref Message message){
+   base.WndProc(ref message);
+   if(message.Msg!=0x84||WindowState!=FormWindowState.Normal)return;
+   long packed=message.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));
+   const int edge=5;bool left=p.X<edge,right=p.X>=ClientSize.Width-edge,top=p.Y<edge,bottom=p.Y>=ClientSize.Height-edge;
+   if(top)message.Result=(IntPtr)(left?13:right?14:12);else if(bottom)message.Result=(IntPtr)(left?16:right?17:15);else if(left)message.Result=(IntPtr)10;else if(right)message.Result=(IntPtr)11;
   }
   async Task InitializeBrowser(){
    try {
@@ -75,34 +85,38 @@ namespace LogViewer {
     await browser.EnsureCoreWebView2Async(environment);
     browser.CoreWebView2.SetVirtualHostNameToFolderMapping("logviewer.local",Program.Cache,CoreWebView2HostResourceAccessKind.DenyCors);
     browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled=false;
+    documentUrl="https://logviewer.local/index.html?v="+Program.Hash(Program.Resource("ViewerHtml")).Substring(0,12);
+    browser.CoreWebView2.WebMessageReceived+=(sender,e)=>{
+     if(e.Source!=documentUrl)return;
+     string command;try{command=e.TryGetWebMessageAsString();}catch{return;}
+     if(command=="close")Close();
+     else if(command=="minimize")WindowState=FormWindowState.Minimized;
+     else if(command=="maximize"){MaximizedBounds=Screen.FromHandle(Handle).WorkingArea;WindowState=WindowState==FormWindowState.Maximized?FormWindowState.Normal:FormWindowState.Maximized;}
+     else if(command=="drag"){ReleaseCapture();SendMessage(Handle,0xA1,(IntPtr)2,IntPtr.Zero);}
+    };
     browser.CoreWebView2.NewWindowRequested+=(sender,e)=>{e.Handled=true;OpenExternal(e.Uri);};
     browser.CoreWebView2.NavigationStarting+=(sender,e)=>{if(!e.Uri.StartsWith("https://logviewer.local/",StringComparison.OrdinalIgnoreCase)){e.Cancel=true;OpenExternal(e.Uri);}};
-    browser.Source=new Uri("https://logviewer.local/index.html");
-    status.Text="v"+Program.VersionText+" · 오프라인 로그 분석";
+    browser.Source=new Uri(documentUrl);
    }catch(Exception error){
-    status.Text="WebView2 초기화 실패";
     MessageBox.Show("Microsoft Edge WebView2 Runtime이 필요합니다.\n\n"+error.Message+"\n\nhttps://developer.microsoft.com/microsoft-edge/webview2/",Text,MessageBoxButtons.OK,MessageBoxIcon.Error);
    }
   }
   static void OpenExternal(string url){Uri uri;if(Uri.TryCreate(url,UriKind.Absolute,out uri)&&uri.Scheme=="https")Process.Start(new ProcessStartInfo(uri.AbsoluteUri){UseShellExecute=true});}
   async Task CheckUpdates(){
-   if(checking)return;checking=true;update.Enabled=false;
+   if(checking)return;checking=true;
    try {
-    status.Text="v"+Program.VersionText+" · 업데이트 확인 중…";
     var release=await Updater.Latest();
     string tag=(string)release["tag_name"];
-    if(!Updater.IsNewer(tag,Program.VersionText)){status.Text="v"+Program.VersionText+" · 최신 버전";return;}
-    status.Text=tag+" 다운로드 중 · 현재 분석을 계속할 수 있습니다";
+    if(!Updater.IsNewer(tag,Program.VersionText))return;
     var result=await Updater.Download(release);readyFile=result.Item1;readyHash=result.Item2;
-    status.Text=tag+" 준비 완료 · 로그를 저장한 뒤 재시작하세요";update.Text="재시작하여 업데이트";
-   }catch(Exception){status.Text="v"+Program.VersionText+" · 업데이트 확인 불가 · 오프라인 사용 가능";}
-   finally{checking=false;update.Enabled=true;}
+   }catch(Exception){/* Offline operation is uninterrupted. Retry on the next launch. */}
+   finally{checking=false;}
   }
-  void RestartUpdate(){
-   if(MessageBox.Show("첨부 로그와 재생 상태는 초기화됩니다. 업데이트를 적용하고 재시작할까요?",Text,MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+  void ApplyReadyUpdate(){
+   if(readyFile==null)return;
    string target=Application.ExecutablePath;
-   var args="--apply-update "+Process.GetCurrentProcess().Id+" \""+target+"\" "+readyHash;
-   Process.Start(new ProcessStartInfo(readyFile,args){UseShellExecute=false,CreateNoWindow=true});Close();
+   var args="--apply-update "+Process.GetCurrentProcess().Id+" \""+target+"\" "+readyHash+" --no-restart";
+   try{Process.Start(new ProcessStartInfo(readyFile,args){UseShellExecute=false,CreateNoWindow=true});}catch(Exception){/* Leave the installed version intact if the helper cannot start. */}
   }
  }
 

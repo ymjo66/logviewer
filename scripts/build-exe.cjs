@@ -4,6 +4,7 @@ const root=path.resolve(__dirname,'..');process.chdir(root);
 async function main(){
  if(process.platform!=='win32')throw Error('EXE build requires Windows. HTML builds work on Windows/Linux.');
  require('./build.cjs').build();
+ require('./build-icon.cjs');
  const version=require('../package.json').version,sdkVersion='1.0.4314.35',sdk=path.join(root,'artifacts/webview2/sdk');
  if(!fs.existsSync(path.join(sdk,'lib/net462/Microsoft.Web.WebView2.Core.dll'))){
   fs.mkdirSync(path.dirname(sdk),{recursive:true});
@@ -16,15 +17,17 @@ async function main(){
  }
  fs.writeFileSync('artifacts/Version.cs',`[assembly: System.Reflection.AssemblyVersion("${version}.0")]\n[assembly: System.Reflection.AssemblyFileVersion("${version}.0")]\n`);
  const csc=path.join(process.env.WINDIR,'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
- const args=['/nologo','/target:winexe','/platform:x64','/optimize+','/out:dist\\LogViewer.exe',
+ const args=['/nologo','/target:winexe','/platform:x64','/optimize+','/win32icon:assets\\LogViewer.ico','/out:dist\\LogViewer.exe',
   ...['System.Windows.Forms.dll','System.Drawing.dll','System.Net.Http.dll','System.Web.Extensions.dll'].map(s=>'/reference:'+s),
   ...['Core','WinForms'].map(s=>'/reference:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)),
   '/resource:dist\\LogViewer.html,ViewerHtml',
+  '/resource:assets\\LogViewer.ico,ViewerIcon',
   ...['Core','WinForms'].map(s=>'/resource:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)+`,Microsoft.Web.WebView2.${s}.dll`),
   '/resource:'+path.join(sdk,'runtimes/win-x64/native/WebView2Loader.dll')+',WebView2Loader.dll',
   'desktop\\Program.cs','artifacts\\Version.cs'];
  execFileSync(csc,args,{stdio:'inherit',windowsHide:true});
- const names=['LogViewer.html','LogViewer.exe','THIRD_PARTY_NOTICES.txt'];
+ fs.copyFileSync('assets/LogViewer.ico','dist/LogViewer.ico');
+ const names=['LogViewer.html','LogViewer.exe','LogViewer.ico','THIRD_PARTY_NOTICES.txt'];
  fs.writeFileSync('dist/SHA256SUMS.txt',names.map(n=>crypto.createHash('sha256').update(fs.readFileSync('dist/'+n)).digest('hex')+'  '+n).join('\n')+'\n');
  console.log('Built Windows x64 EXE, offline HTML and checksums.');
 }

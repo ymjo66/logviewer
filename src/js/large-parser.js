@@ -60,7 +60,7 @@ async function parseDataFlashFile(file,onProgress=()=>{},options={}) {
       if(p+schema.length>scan.length)break;
       tables[schema.name]._packed.backend.append(base+p);schema.count++;rawCounts[schema.name]++;totalPackets++;p+=schema.length;
     }
-    carry=scan.slice(p);onProgress(Math.min(1,(start+bytes.length)/file.size),'원본 패킷 색인');
+    carry=scan.slice(p);onProgress(Math.min(1,(start+bytes.length)/file.size),'원본 파일 인덱스');
     if(options.yieldEvery!==0)await new Promise(resolve=>setTimeout(resolve,0));
   }
   const fmtList=[fmt,...definitions].filter((f,i,all)=>all.findIndex(s=>s.name===f.name&&s.format===f.format&&s.columns.join(',')===f.columns.join(','))===i);

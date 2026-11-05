@@ -14,7 +14,7 @@ async function main(){
  const commands=["Add-Type -AssemblyName System.IO.Compression.FileSystem",`$z=[System.IO.Compression.ZipFile]::Open(${q(archive)},'Update')`];
  for(const name of [...sources.map(s=>s[0]),'SOURCE-MANIFEST.json'])commands.push(`[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($z,${q(path.join(root,'artifacts/upstream',name))},${q('third_party/'+name)}) | Out-Null`);
  commands.push('$z.Dispose()');execFileSync('powershell.exe',['-NoProfile','-Command',commands.join(';')],{stdio:'inherit',windowsHide:true});
- const files=['LogViewer.html','LogViewer.exe','THIRD_PARTY_NOTICES.txt',path.basename(archive)];
+ const files=['LogViewer.html','LogViewer.exe','LogViewer.ico','THIRD_PARTY_NOTICES.txt',path.basename(archive)];
  fs.writeFileSync('dist/SHA256SUMS.txt',files.map(name=>hash(fs.readFileSync('dist/'+name))+'  '+name).join('\n')+'\n');
  console.log('Created source archive for '+info.commit+' with upstream preferred sources.');
 }
