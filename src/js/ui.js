@@ -791,6 +791,9 @@
       try{
         const analysis=parsedLog.nativeId?await analyzeNativeLog(parsedLog,appState.config,progress):analyzeParsedLog(parsedLog,appState.config);
         analysis.timeline._packed?.backend.compact?.();
+        // Comparison lists include inactive logs after their raw bytes are released.
+        // Cache field and instance metadata while the source is still resident.
+        buildFieldCatalog(parsedLog);
         return {fileName:file.name,parsedLog,analysis};
       }catch(error){try{parsedLog.dispose?.();}catch{}throw error;}
     }

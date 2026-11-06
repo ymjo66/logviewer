@@ -7,7 +7,7 @@ const element=()=>({value:'',style:{},classList:{add(){},remove(){}},after(){},a
 const context=vm.createContext({console:{error(){}},setTimeout:fn=>setTimeout(fn,0),clearTimeout,setInterval,clearInterval,TextDecoder,Uint8Array,DataView,ArrayBuffer,Blob,window:{addEventListener(){}},document:{getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element},Chart:{register(){}}});
 vm.runInContext(scripts.find(s=>s.includes('function detectBatteryCells')),context);
 vm.runInContext(scripts.find(s=>s.includes('function analyzeParsedLog')),context);
-vm.runInContext('var realActivate=activateLogByIndex;stopPlayback=()=>{};activateLogByIndex=()=>{};showToast=()=>{};renderUploadReport=r=>{appState.report=r;}',context);
+vm.runInContext('var realActivate=activateLogByIndex;stopPlayback=()=>{};activateLogByIndex=()=>{for(const log of appState.logs)buildFieldCatalog(log.parsedLog);};showToast=()=>{};renderUploadReport=r=>{appState.report=r;}',context);
 const bytes=fs.readFileSync('tests/fixtures/synthetic-flight.log');
 const file=name=>{const blob=new Blob([bytes]);return {name,size:blob.size,slice:(a,b)=>blob.slice(a,b)};};
 async function upload(files){context.files=files;await vm.runInContext('handleMultipleFilesUpload(files)',context);return vm.runInContext('appState.report',context);}
@@ -20,6 +20,7 @@ async function upload(files){context.files=files;await vm.runInContext('handleMu
  const fmt=Buffer.alloc(89);fmt.set([0xa3,0x95,128,42,19]);fmt.write('CTUN',5);fmt.write('Qff',9);fmt.write('TimeUS,Alt,ThO',25);
  const packets=Array.from({length:20},(_,i)=>{const b=Buffer.alloc(19);b.set([0xa3,0x95,42]);b.writeBigUInt64LE(BigInt(i)*1000000n,3);b.writeFloatLE(i>3&&i<16?20:0,11);b.writeFloatLE(i>3&&i<16?50:0,15);return b;});
  const bin=new Blob([fmt,...packets]);vm.runInContext('appState.logs=[];appState.activeLogIndex=-1',context);
+ // Activation builds comparison field lists for inactive BIN logs too.
  const resultBin=await upload(Array.from({length:150},(_,i)=>({name:`raw-${i}.bin`,size:bin.size,slice:(a,b)=>bin.slice(a,b)})));
  assert.equal(resultBin.loaded,150);assert.equal(vm.runInContext('appState.logs.reduce((n,log)=>n+log.parsedLog.retainedBytes,0)',context),0,'inactive BIN caches retain zero raw bytes');
  vm.runInContext('activateLogByIndex=realActivate;renderAllViews=()=>{};renderMultiLogManager=()=>{};switchMainTab=()=>{};window.scrollTo=()=>{};',context);
