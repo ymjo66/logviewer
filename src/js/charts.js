@@ -520,6 +520,52 @@
 
     function customFieldAxisId(index) { return index === 0 ? 'y' : `y${index}`; }
 
+    // Match sibling quantities, not every column in a message (GPS altitude,
+    // latitude and speed must retain independent ranges).
+    function fieldRangeGroup(field) {
+      const dot=field.indexOf('.'),message=field.slice(0,dot).replace(/\[[^\]]+\]$/,''),name=field.slice(dot+1);
+      let family=name.replace(/\[\d+\]$/,'').replace(/\d+$/,'');
+      if(/^(?:ATT|ANG|XKF\d+|NKF\d+)$/.test(message)&&/^(?:Des)?(?:Roll|Pitch|Yaw)$/.test(name))family='attitude';
+      else if(/(?:X|Y|Z)$/.test(family))family=family.slice(0,-1);
+      else if(/^(?:D|Des)?Alt$/.test(name))family='Alt';
+      let unit='';
+      if(appState.parsedLog&&typeof messageFieldUnit==='function')unit=messageFieldUnit(appState.parsedLog,message,name.replace(/\[\d+\]$/,''));
+      return JSON.stringify([message,family,unit]);
+    }
+
+    function commonPlotBounds(min,max) {
+      if(!Number.isFinite(min)||!Number.isFinite(max))return null;
+      if(min===max){const padding=Math.abs(min)*.05||1;min-=padding;max+=padding;}
+      const raw=(max-min)/5,power=10**Math.floor(Math.log10(raw)),ratio=raw/power;
+      const step=(ratio<=1?1:ratio<=2?2:ratio<=5?5:10)*power;
+      const low=Math.floor(min/step)*step,high=Math.ceil(max/step)*step;
+      return Number.isFinite(low)&&Number.isFinite(high)&&low<high?{min:low,max:high}:null;
+    }
+
+    function synchronizePlotAxes(config,fields=[]) {
+      const custom=!!config.customAxes,axes={},groups=new Map();
+      config.datasets.forEach((dataset,index)=>{
+        const original=dataset.yAxisID||'y',axisId=custom?original:customFieldAxisId(index);
+        const field=custom?fields.find((field,i)=>customFieldAxisId(i)===original):null;
+        const group=custom?fieldRangeGroup(field||dataset.label):'preset:'+original;
+        const previous=config.customAxes?.[original],color=dataset.borderColor;
+        axes[axisId]??={...previous,type:'linear',position:previous?.position||'left',display:true,weight:config.datasets.length-index,
+          title:{...previous?.title,display:true,text:field||dataset.label,color,font:{size:10}},
+          ticks:{...previous?.ticks,color,font:{family:'Arial',size:11}},border:{...previous?.border,color},
+          grid:{drawOnChartArea:index===0,color:'#e5e5e5'}};
+        dataset.yAxisID=axisId;
+        if(!groups.has(group))groups.set(group,{min:Infinity,max:-Infinity,axes:new Set()});
+        const shared=groups.get(group);shared.axes.add(axisId);
+        if(dataset.statistics){shared.min=Math.min(shared.min,dataset.statistics.min);shared.max=Math.max(shared.max,dataset.statistics.max);}
+        if(!custom){const limits=appState.axisLimits?.main?.[original];if(limits){axes[axisId].min=limits.min;axes[axisId].max=limits.max;}}
+      });
+      for(const group of groups.values()){
+        const bounds=commonPlotBounds(group.min,group.max);if(!bounds)continue;
+        for(const axisId of group.axes){axes[axisId].min??=bounds.min;axes[axisId].max??=bounds.max;}
+      }
+      config.customAxes=axes;return config;
+    }
+
     function buildCustomFieldScales(fields, palette, limits = {}) {
       return Object.fromEntries(fields.map((field,index) => {
         const color = palette[index % palette.length];
@@ -589,6 +635,7 @@
 
       normalizePlotDatasets(cfg.datasets);
       styleUavDatasets(cfg.datasets,!!cfg.customAxes);
+      synchronizePlotAxes(cfg,appState.customFields);
       renderPlotLegend(cfg.datasets);
       const commonXScale = {
         type: 'linear',
@@ -625,6 +672,7 @@
             }
           },
           plugins: {
+            manualAxisLimits:false,
             legend: {display:false},
             tooltip: {
               backgroundColor: 'rgba(15, 23, 42, 0.92)',

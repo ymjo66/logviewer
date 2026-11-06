@@ -3895,6 +3895,52 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
 
     function customFieldAxisId(index) { return index === 0 ? 'y' : `y${index}`; }
 
+    // Match sibling quantities, not every column in a message (GPS altitude,
+    // latitude and speed must retain independent ranges).
+    function fieldRangeGroup(field) {
+      const dot=field.indexOf('.'),message=field.slice(0,dot).replace(/\[[^\]]+\]$/,''),name=field.slice(dot+1);
+      let family=name.replace(/\[\d+\]$/,'').replace(/\d+$/,'');
+      if(/^(?:ATT|ANG|XKF\d+|NKF\d+)$/.test(message)&&/^(?:Des)?(?:Roll|Pitch|Yaw)$/.test(name))family='attitude';
+      else if(/(?:X|Y|Z)$/.test(family))family=family.slice(0,-1);
+      else if(/^(?:D|Des)?Alt$/.test(name))family='Alt';
+      let unit='';
+      if(appState.parsedLog&&typeof messageFieldUnit==='function')unit=messageFieldUnit(appState.parsedLog,message,name.replace(/\[\d+\]$/,''));
+      return JSON.stringify([message,family,unit]);
+    }
+
+    function commonPlotBounds(min,max) {
+      if(!Number.isFinite(min)||!Number.isFinite(max))return null;
+      if(min===max){const padding=Math.abs(min)*.05||1;min-=padding;max+=padding;}
+      const raw=(max-min)/5,power=10**Math.floor(Math.log10(raw)),ratio=raw/power;
+      const step=(ratio<=1?1:ratio<=2?2:ratio<=5?5:10)*power;
+      const low=Math.floor(min/step)*step,high=Math.ceil(max/step)*step;
+      return Number.isFinite(low)&&Number.isFinite(high)&&low<high?{min:low,max:high}:null;
+    }
+
+    function synchronizePlotAxes(config,fields=[]) {
+      const custom=!!config.customAxes,axes={},groups=new Map();
+      config.datasets.forEach((dataset,index)=>{
+        const original=dataset.yAxisID||'y',axisId=custom?original:customFieldAxisId(index);
+        const field=custom?fields.find((field,i)=>customFieldAxisId(i)===original):null;
+        const group=custom?fieldRangeGroup(field||dataset.label):'preset:'+original;
+        const previous=config.customAxes?.[original],color=dataset.borderColor;
+        axes[axisId]??={...previous,type:'linear',position:previous?.position||'left',display:true,weight:config.datasets.length-index,
+          title:{...previous?.title,display:true,text:field||dataset.label,color,font:{size:10}},
+          ticks:{...previous?.ticks,color,font:{family:'Arial',size:11}},border:{...previous?.border,color},
+          grid:{drawOnChartArea:index===0,color:'#e5e5e5'}};
+        dataset.yAxisID=axisId;
+        if(!groups.has(group))groups.set(group,{min:Infinity,max:-Infinity,axes:new Set()});
+        const shared=groups.get(group);shared.axes.add(axisId);
+        if(dataset.statistics){shared.min=Math.min(shared.min,dataset.statistics.min);shared.max=Math.max(shared.max,dataset.statistics.max);}
+        if(!custom){const limits=appState.axisLimits?.main?.[original];if(limits){axes[axisId].min=limits.min;axes[axisId].max=limits.max;}}
+      });
+      for(const group of groups.values()){
+        const bounds=commonPlotBounds(group.min,group.max);if(!bounds)continue;
+        for(const axisId of group.axes){axes[axisId].min??=bounds.min;axes[axisId].max??=bounds.max;}
+      }
+      config.customAxes=axes;return config;
+    }
+
     function buildCustomFieldScales(fields, palette, limits = {}) {
       return Object.fromEntries(fields.map((field,index) => {
         const color = palette[index % palette.length];
@@ -3964,6 +4010,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
 
       normalizePlotDatasets(cfg.datasets);
       styleUavDatasets(cfg.datasets,!!cfg.customAxes);
+      synchronizePlotAxes(cfg,appState.customFields);
       renderPlotLegend(cfg.datasets);
       const commonXScale = {
         type: 'linear',
@@ -4000,6 +4047,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
             }
           },
           plugins: {
+            manualAxisLimits:false,
             legend: {display:false},
             tooltip: {
               backgroundColor: 'rgba(15, 23, 42, 0.92)',
@@ -6291,7 +6339,7 @@ function setupLogComparison(){
   for(const [key,label] of COMPARISON_METRICS){const item=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='autoRelAlt';input.addEventListener('change',clearLogComparison);item.append(input,document.createTextNode(label));metricChoices.append(item);}
   const fieldPicker=document.createElement('details');fieldPicker.className='comparison-field-picker';fieldPicker.innerHTML='<summary>전체 원본 필드 선택</summary><input id="comparisonFieldSearch" type="search" placeholder="전체 필드 검색 (예: GPS[0].Alt, RCOU.C6)" aria-label="비교할 전체 필드 검색"><button type="button" id="comparisonClearFields">원본 필드 선택 초기화</button><output id="comparisonFieldCount"></output><div id="comparisonRawFields"></div>';metricChoices.after(fieldPicker);
   fieldPicker.querySelector('input').addEventListener('input',()=>refreshComparisonFields());fieldPicker.querySelector('button').addEventListener('click',()=>{comparisonFieldChosen.clear();refreshComparisonFields();clearLogComparison();});
-  panel.querySelector('p').textContent='기본 분석 항목 또는 전체 원본 필드를 여러 개 선택해 비교합니다. 같은 필드는 공통 축을 사용하고 센서 인스턴스·배열 원소도 선택할 수 있습니다.';
+  panel.querySelector('p').textContent='기본 분석 항목 또는 전체 원본 필드를 여러 개 선택해 비교합니다. 같은 계열 필드는 공통 범위를 사용하며 곡선과 세로축 색상이 일치합니다. 센서 인스턴스·배열 원소도 선택할 수 있습니다.';
   const surface=document.createElement('div');surface.className='comparison-chart-surface';panel.querySelector('.comparison-frame').append(surface);surface.append(panel.querySelector('canvas'));
   panel.querySelector('#comparisonSelectAll').addEventListener('click',()=>{comparisonChosen=new Set(appState.logs);refreshLogComparison(false);clearLogComparison();});
   panel.querySelector('#comparisonSelectNone').addEventListener('click',()=>{comparisonChosen.clear();refreshLogComparison(false);clearLogComparison();});
@@ -6311,6 +6359,20 @@ function setupLogComparison(){
   canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);canvas.addEventListener('lostpointercapture',()=>drag=null);canvas.addEventListener('dblclick',resetComparisonRange);
 }
 function clearLogComparison(){comparisonChart?.destroy();comparisonChart=null;const status=document.getElementById('comparisonStatus');if(status)status.textContent='비교할 항목과 로그를 선택하고 비교하기를 눌러 주세요.';}
+function synchronizeComparisonAxes(result){
+  const axes={},groups=new Map();
+  for(const [index,dataset] of result.datasets.entries()){
+    const previous=result.axes[dataset.yAxisID],key=dataset.metricKey;
+    const family=key.startsWith('raw:')?fieldRangeGroup(JSON.parse(key.slice(4)).join('.')):/^c\d+$/.test(key)?fieldRangeGroup('RCOU.C1'):key;
+    const axisId='comparison_curve_'+index,color=dataset.borderColor;
+    axes[axisId]={...previous,title:{...previous.title,color},ticks:{...previous.ticks,color},border:{color},grid:{...previous.grid,drawOnChartArea:index===0}};
+    dataset.yAxisID=axisId;
+    if(!groups.has(family))groups.set(family,{min:Infinity,max:-Infinity,axes:[]});const group=groups.get(family);group.axes.push(axisId);
+    for(const point of dataset.data)if(Number.isFinite(point.y)){group.min=Math.min(group.min,point.y);group.max=Math.max(group.max,point.y);}
+  }
+  for(const group of groups.values()){const bounds=commonPlotBounds(group.min,group.max);if(bounds)for(const axis of group.axes)Object.assign(axes[axis],bounds);}
+  result.axes=axes;
+}
 function refreshLogComparison(invalidate=true){
   const choices=document.getElementById('comparisonLogChoices');if(!choices)return;
   const changed=appState.logs.length!==comparisonKnown.size||appState.logs.some(log=>!comparisonKnown.has(log)||comparisonVersions.get(log)!==log.analysis);
@@ -6334,7 +6396,9 @@ function drawLogComparison(){return queueLogTask(async()=>{
     keys.push(...comparisonFieldChosen);const selected=appState.logs.filter(log=>comparisonChosen.has(log));
     const result={datasets:[],skipped:[],axes:{}};
     for(const log of selected){status.textContent=`비교 데이터 조회 중 · ${log.fileName}`;await new Promise(resolve=>setTimeout(resolve,0));if(comparisonFieldChosen.size)await log.parsedLog.ensureLoaded?.();try{const part=buildLogComparison([log],keys,document.getElementById('comparisonAlignment').value);result.datasets.push(...part.datasets);result.skipped.push(...part.skipped);Object.assign(result.axes,part.axes);}finally{if(log!==appState.logs[appState.activeLogIndex])log.parsedLog.releaseRawBytes?.();}}
-    clearLogComparison();status.textContent=`${new Set(result.datasets.map(dataset=>dataset.logIndex)).size}개 로그 · ${Object.keys(result.axes).length}개 항목 · ${result.datasets.length}개 곡선${result.skipped.length?' · 제외: '+result.skipped.join(' / '):''}`;
+    const metricCount=new Set(result.datasets.map(dataset=>dataset.metricKey)).size;
+    synchronizeComparisonAxes(result);
+    clearLogComparison();status.textContent=`${new Set(result.datasets.map(dataset=>dataset.logIndex)).size}개 로그 · ${metricCount}개 항목 · ${result.datasets.length}개 곡선${result.skipped.length?' · 제외: '+result.skipped.join(' / '):''}`;
     if(!result.datasets.length)return;
     document.querySelector('.comparison-chart-surface').style.minWidth=`${Math.max(620,500+Object.keys(result.axes).length*55)}px`;
     comparisonChart=new Chart(document.getElementById('logComparisonChart').getContext('2d'),{

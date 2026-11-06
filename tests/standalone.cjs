@@ -92,6 +92,18 @@ assert.equal(customAxes.y2.title.text,'GPS.Lng');
 assert.equal(customAxes.y2.min,126);
 assert.equal(customAxes.y2.max,127);
 assert.equal(customAxes.y1.ticks.color,'green','axis color follows its field');
+context.axisFields=['RCOU.C1','RCOU.C2','GPS.Alt','GPS.Spd','VIBE.VibeX','VIBE.VibeZ','VIBE.Clip0'];
+context.axisConfig={customAxes:context.buildCustomFieldScales(context.axisFields,['blue','red','green','orange','purple','cyan','black']),datasets:context.axisFields.map((field,i)=>({label:field,yAxisID:context.customFieldAxisId(i),borderColor:['blue','red','green','orange','purple','cyan','black'][i],statistics:[{min:1000,max:1780},{min:1050,max:1740},{min:20,max:35},{min:0,max:5},{min:1,max:18},{min:3,max:25},{min:0,max:1}][i]}))};
+vm.runInContext('synchronizePlotAxes(axisConfig,axisFields)',context);
+assert.equal(context.axisConfig.customAxes.y.max,1800);assert.equal(context.axisConfig.customAxes.y1.max,1800);assert.equal(context.axisConfig.customAxes.y.min,context.axisConfig.customAxes.y1.min);
+assert.notEqual(context.axisConfig.customAxes.y2.max,context.axisConfig.customAxes.y3.max,'GPS altitude and speed remain independent');
+assert.equal(context.axisConfig.customAxes.y4.max,context.axisConfig.customAxes.y5.max,'vibration components share range');assert.notEqual(context.axisConfig.customAxes.y4.max,context.axisConfig.customAxes.y6.max,'clip counter is not vibration');
+for(const dataset of context.axisConfig.datasets){const axis=context.axisConfig.customAxes[dataset.yAxisID];assert.equal(axis.ticks.color,dataset.borderColor);assert.equal(axis.title.color,dataset.borderColor);assert.equal(axis.border.color,dataset.borderColor);}
+context.presetAxes={datasets:[{label:'Roll',yAxisID:'y',borderColor:'blue',statistics:{min:-10,max:20}},{label:'Pitch',yAxisID:'y',borderColor:'red',statistics:{min:-5,max:10}}]};vm.runInContext('synchronizePlotAxes(presetAxes)',context);
+assert.notEqual(context.presetAxes.datasets[0].yAxisID,context.presetAxes.datasets[1].yAxisID);assert.equal(context.presetAxes.customAxes.y.max,context.presetAxes.customAxes.y1.max);assert.equal(context.presetAxes.customAxes.y1.ticks.color,'red');
+context.manualAxes={customAxes:context.buildCustomFieldScales(['RCOU.C1','RCOU.C2'],['blue','red'],{'RCOU.C1':{min:900,max:2000}}),datasets:[{label:'RCOU.C1',yAxisID:'y',borderColor:'blue',statistics:{min:1000,max:1780}},{label:'RCOU.C2',yAxisID:'y1',borderColor:'red',statistics:{min:1000,max:1740}}]};vm.runInContext('synchronizePlotAxes(manualAxes,["RCOU.C1","RCOU.C2"])',context);assert.equal(context.manualAxes.customAxes.y.max,2000);
+const comparisonAxisCode=fs.readFileSync('src/js/comparison.js','utf8');vm.runInContext(comparisonAxisCode.slice(comparisonAxisCode.indexOf('function synchronizeComparisonAxes('),comparisonAxisCode.indexOf('function refreshLogComparison(')),context);
+context.comparedAxes={axes:{motor:{title:{text:'PWM'},ticks:{},grid:{}}},datasets:[{metricKey:'raw:["RCOU","C1"]',yAxisID:'motor',borderColor:'blue',data:[{x:0,y:1000},{x:1,y:1780}]},{metricKey:'raw:["RCOU","C2"]',yAxisID:'motor',borderColor:'red',data:[{x:0,y:1000},{x:1,y:1740}]}]};vm.runInContext('synchronizeComparisonAxes(comparedAxes)',context);assert.equal(context.comparedAxes.axes.comparison_curve_0.max,context.comparedAxes.axes.comparison_curve_1.max);assert.equal(context.comparedAxes.axes.comparison_curve_1.ticks.color,'red');
 assert.equal(Object.keys(context.buildCustomFieldScales(['GPS.Lng'],['orange'],{'GPS.Lng':{min:126,max:127}})).length,1,'deselected field axes are removed');
 assert.deepEqual(panWindow(20,60,10,0,120),{minSec:10,maxSec:50},'drag right moves the data right, revealing earlier time');
 assert.deepEqual(panWindow(20,60,-10,0,120),{minSec:30,maxSec:70},'drag left reveals later time');
