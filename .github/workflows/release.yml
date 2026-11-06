@@ -24,14 +24,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:exe
-      - name: Check native disk parser
-        run: node tests/native-disk.cjs
-      - name: Check native executable
+      - name: Check executable and actual browser pipeline
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath (Resolve-Path dist/LogViewer.exe) -ArgumentList '--self-test','artifacts/exe-self-test.json' -WindowStyle Hidden -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw 'Native self test failed' }
-          Get-Content artifacts/exe-self-test.json
+          foreach ($mode in @('self-test','browser-self-test')) {
+            $report = "artifacts/$mode.json"
+            $p = Start-Process -FilePath (Resolve-Path dist/LogViewer.exe) -ArgumentList "--$mode",$report -WindowStyle Hidden -PassThru
+            if (-not $p.WaitForExit(150000)) { $p.Kill(); throw "$mode timed out" }
+            if (Test-Path $report) { Get-Content $report }
+            if ($p.ExitCode -ne 0) { throw "$mode failed" }
+          }
       - name: Prepare matching source
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/source-archive.cjs
@@ -45,3 +47,4 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and package version differ' }
           node scripts/publish-release.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Publishing failed' }
+

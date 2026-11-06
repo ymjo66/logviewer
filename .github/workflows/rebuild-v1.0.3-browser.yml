@@ -1,0 +1,53 @@
+name: Build browser-pipeline EXE for v1.0.3
+on:
+  push:
+    branches: [fix/exe-html-browser-pipeline]
+permissions:
+  contents: write
+concurrency:
+  group: replace-v1.0.3-browser
+  cancel-in-progress: false
+jobs:
+  build-and-replace:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:exe
+      - name: Check EXE and actual WebView2 browser pipeline
+        shell: pwsh
+        run: |
+          foreach ($mode in @('self-test','browser-self-test')) {
+            $report = "artifacts/$mode.json"
+            $p = Start-Process -FilePath (Resolve-Path dist/LogViewer.exe) -ArgumentList "--$mode",$report -WindowStyle Hidden -PassThru
+            if (-not $p.WaitForExit(150000)) { $p.Kill(); throw "$mode timed out" }
+            if (Test-Path $report) { Get-Content $report } else { throw "$mode report missing" }
+            if ($p.ExitCode -ne 0) { throw "$mode failed" }
+            if ($mode -eq 'browser-self-test' -and -not ((Get-Content $report -Raw | ConvertFrom-Json).ok)) { throw 'Browser pipeline failed' }
+          }
+      - run: node scripts/source-archive.cjs
+      - name: Replace tested v1.0.3 assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload v1.0.3 dist/LogViewer.exe dist/LogViewer.html dist/LogViewer.ico dist/THIRD_PARTY_NOTICES.txt dist/LogViewer-1.0.3-source.zip dist/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release replacement failed' }
+          New-Item -ItemType Directory -Force artifacts/verify | Out-Null
+          gh release download v1.0.3 --pattern LogViewer.exe --pattern LogViewer.html --pattern SHA256SUMS.txt --dir artifacts/verify
+          if ($LASTEXITCODE -ne 0) { throw 'Release verification download failed' }
+          foreach ($name in @('LogViewer.exe','LogViewer.html','SHA256SUMS.txt')) {
+            if ((Get-FileHash "dist/$name").Hash -ne (Get-FileHash "artifacts/verify/$name").Hash) { throw "$name differs after upload" }
+          }
+      - name: Keep executable test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-pipeline-test-reports
+          path: artifacts/*self-test.json
