@@ -118,7 +118,7 @@ function refreshLogComparison(invalidate=true){
     input.addEventListener('change',()=>{if(input.checked)comparisonChosen.add(log);else comparisonChosen.delete(log);clearLogComparison();});label.append(input,dot,document.createTextNode(log.fileName));label.title=log.fileName;choices.append(label);
   });
   const bytes=appState.logs.reduce((n,log)=>n+(log.parsedLog.byteLength||0),0);
-  document.getElementById('capacityTotals').textContent=`현재 첨부 ${appState.logs.length}개 · 원본 합계 ${(bytes/1e9).toFixed(2)} GB (실제 메모리 사용량과 다름)`;
+  document.getElementById('capacityTotals').textContent=`현재 첨부 ${appState.logs.length}개 · 원본 합계 ${(bytes/1024**3).toFixed(2)} GB (실제 메모리 사용량과 다름)`;
   if(invalidate&&changed)clearLogComparison();
 }
 function drawLogComparison(){return queueLogTask(async()=>{

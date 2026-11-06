@@ -834,7 +834,7 @@
       let panel=document.getElementById('uploadResultReport');
       if(!panel){panel=document.createElement('details');panel.id='uploadResultReport';panel.style.cssText='margin:12px;padding:12px;border:1px solid #596170;border-radius:6px;color:white;overflow-wrap:anywhere';document.getElementById('uploadProgressBanner').after(panel);}
       panel.replaceChildren();panel.open=report.failures.length>0;
-      const summary=document.createElement('summary');summary.textContent=`불러오기 결과: 선택 ${report.selected}개 · 성공 ${report.loaded}개 · 실패 ${report.failures.length}개${Number.isFinite(report.totalBytes)?' · 원본 '+(report.totalBytes/1e9).toFixed(2)+' GB':''}`;panel.append(summary);
+      const summary=document.createElement('summary');summary.textContent=`불러오기 결과: 선택 ${report.selected}개 · 성공 ${report.loaded}개 · 실패 ${report.failures.length}개${Number.isFinite(report.totalBytes)?' · 원본 '+(report.totalBytes/1024**3).toFixed(2)+' GB':''}`;panel.append(summary);
       for(const failure of report.failures){const row=document.createElement('p');row.textContent=`${failure.fileName} — ${failure.message}`;panel.append(row);}
       if(!report.failures.length){const row=document.createElement('p');row.textContent='선택한 모든 파일을 불러왔습니다. 고정된 개수 제한은 없으며 전체 용량에 따라 사용 가능한 메모리의 영향을 받습니다.';panel.append(row);}
     }
