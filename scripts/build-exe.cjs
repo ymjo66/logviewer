@@ -23,10 +23,11 @@ async function main(){
   ...['System.Windows.Forms.dll','System.Drawing.dll','System.Net.Http.dll','System.Web.Extensions.dll'].map(s=>'/reference:'+s),
   ...['Core','WinForms'].map(s=>'/reference:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)),
   '/resource:dist\\LogViewer.html,ViewerHtml',
+  '/resource:tests\\desktop-browser-smoke.js,BrowserSmokeTest',
   '/resource:assets\\LogViewer.ico,ViewerIcon',
   ...['Core','WinForms'].map(s=>'/resource:'+path.join(sdk,`lib/net462/Microsoft.Web.WebView2.${s}.dll`)+`,Microsoft.Web.WebView2.${s}.dll`),
   '/resource:'+path.join(sdk,'runtimes/win-x64/native/WebView2Loader.dll')+',WebView2Loader.dll',
-  'desktop\\Program.cs','desktop\\DiskLogEngine.cs','artifacts\\Version.cs'];
+  'desktop\\Program.cs','artifacts\\Version.cs'];
  execFileSync(csc,args,{stdio:'inherit',windowsHide:true});
  fs.copyFileSync('assets/LogViewer.ico','dist/LogViewer.ico');
  const names=['LogViewer.html',exeName,'LogViewer.ico','THIRD_PARTY_NOTICES.txt'];
@@ -34,3 +35,4 @@ async function main(){
  console.log('Built Windows x64 EXE, offline HTML and checksums.');
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1;});
+
