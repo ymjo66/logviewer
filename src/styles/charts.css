@@ -3,7 +3,7 @@
 #uavPlotCard .main-chart-heading {border:0!important;color:#333!important;margin:0 0 8px}
 #uavPlotCard #chartTitleLabel {color:#333!important;font-weight:500}
 #uavPlotCard #chartHoverReadout {color:#555!important}
-#plotLegend {display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;width:100%;max-width:100%;border:0;background:#fff;padding:4px 0;margin:0 0 8px;font:11px Arial,sans-serif;color:#222}
+#plotLegend {display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:max-content;max-width:100%;box-sizing:border-box;border:1px solid #777;background:#fff;padding:4px 6px;margin:0 0 8px 70px;font:11px Arial,sans-serif;color:#222}
 .plot-legend-row {display:flex;align-items:center;gap:5px;text-align:left;flex-wrap:wrap;white-space:normal;max-width:100%;background:#fff;color:#222;font-weight:400;padding:2px 0}
 .plot-legend-swatch {width:22px;min-width:22px;height:1px;display:inline-block}
 .timeline-overview-frame {height:62px;position:relative;margin:18px 12px 0 70px;background:#fff;touch-action:none}
