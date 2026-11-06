@@ -2,7 +2,6 @@ name: Build browser-pipeline EXE for v1.0.3
 on:
   push:
     branches: [fix/exe-html-browser-pipeline]
-    paths: [.github/workflows/rebuild-v1.0.3-browser.yml]
 permissions:
   contents: write
 concurrency:
