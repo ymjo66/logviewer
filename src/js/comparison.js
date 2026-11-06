@@ -121,7 +121,7 @@ function synchronizeComparisonAxes(result){
     for(const [index,id] of group.axes.entries()){
       const axis=axes[id];if(bounds)Object.assign(axis,bounds);
       axis.ticks.display=index===0;axis.ticks.font={size:10};axis.ticks.padding=2;
-      if(index>0){axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
+      if(index>0){axis.display=false;axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
     }
   }
   result.axes=axes;

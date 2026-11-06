@@ -902,9 +902,9 @@ body>header>.app-header-row {display:grid!important;grid-template-columns:auto m
 #uavPlotCard .main-chart-heading {border:0!important;color:#333!important;margin:0 0 8px}
 #uavPlotCard #chartTitleLabel {color:#333!important;font-weight:500}
 #uavPlotCard #chartHoverReadout {color:#555!important}
-#plotLegend {width:max-content;max-width:100%;border:1px solid #777;background:#fff;padding:4px 6px;margin:0 0 8px 70px;font:11px Arial,sans-serif;color:#222}
-.plot-legend-row {display:flex;align-items:center;gap:5px;text-align:left;white-space:pre-wrap;background:#fff;color:#222;font-weight:400;padding:2px 0}
-.plot-legend-swatch {width:26px;height:1px;display:inline-block}
+#plotLegend {display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;width:100%;max-width:100%;border:0;background:#fff;padding:4px 0;margin:0 0 8px;font:11px Arial,sans-serif;color:#222}
+.plot-legend-row {display:flex;align-items:center;gap:5px;text-align:left;flex-wrap:wrap;white-space:normal;max-width:100%;background:#fff;color:#222;font-weight:400;padding:2px 0}
+.plot-legend-swatch {width:22px;min-width:22px;height:1px;display:inline-block}
 .timeline-overview-frame {height:62px;position:relative;margin:18px 12px 0 70px;background:#fff;touch-action:none}
 .timeline-overview-frame canvas {width:100%!important;height:100%!important;cursor:ew-resize;touch-action:none}
 .overview-caption {font:12px Arial,sans-serif;text-align:center;color:#333;padding:12px 0 4px}
@@ -2209,6 +2209,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     function analyzeParsedLog(parsed, cfg) {
       // Nearest-sample lookup requires ordered timestamps. Keep one sensor instance
       // for derived telemetry; raw field plots retain every instance separately.
+      parsed.beginSensorScan?.();
       const analysisMessages=new Set(['GPS','GPS2','CTUN','POS','BARO','BAR2','AHR2','ATT','VIBE','BAT','CURR','BCL','BCL2','RCOU','RCIN','MAG','MAG2','POWR','XKF1','NKF1','EV','ERR','MSG','MODE','PARM']);
       const t = Object.fromEntries(Object.entries(parsed.tables).filter(([name])=>analysisMessages.has(name)).map(([name, rows]) => {
         if(rows._packed){
@@ -2225,6 +2226,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         const primary = instanceKey ? Math.min(...new Set(ordered.map(r => r[instanceKey]).filter(Number.isFinite))) : null;
         return [name, instanceKey && Number.isFinite(primary) ? ordered.filter(r => r[instanceKey] === primary) : ordered];
       }));
+      parsed.endSensorScan?.();
       parsed.onAnalysisPhase?.('sensor-selection-and-ordering');
       const gpsRows = (t['GPS'] && t['GPS'].length) ? t['GPS'] : (t['GPS2'] || []);
       const ctunRows = t['CTUN'] || [];
@@ -3980,7 +3982,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       for(const [axisId,axis] of Object.entries(axes)){
         const rangeKey=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
         if(shownRanges.has(rangeKey)){
-          axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
+          axis.display=false;axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
           axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;
         }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;}
       }
@@ -6433,7 +6435,7 @@ function synchronizeComparisonAxes(result){
     for(const [index,id] of group.axes.entries()){
       const axis=axes[id];if(bounds)Object.assign(axis,bounds);
       axis.ticks.display=index===0;axis.ticks.font={size:10};axis.ticks.padding=2;
-      if(index>0){axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
+      if(index>0){axis.display=false;axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
     }
   }
   result.axes=axes;
@@ -6493,6 +6495,7 @@ function resetComparisonRange(){if(!comparisonChart)return;delete comparisonChar
 // Native files/indexes live on disk. JS retains only a bounded page cache.
 const nativeDiskBridge=window.chrome?.webview?.hostObjects?.sync?.diskLogs||null;
 const NATIVE_PAGE_ROWS=128,NATIVE_CACHE_LIMIT=16*1024*1024;
+let nativeRawPageRows=128;
 const nativePages=new Map();let nativePageBytes=0,nativeRequestSerial=0;
 const nativeRequests=new Map();
 let nativeProfileEnabled=false;const nativeRpcStats={};
@@ -6524,6 +6527,7 @@ function nativeCachedPage(key,load){
   return rows;
 }
 function clearNativePages(id){for(const [key,page] of nativePages)if(key.startsWith(id+':')){nativePageBytes-=page.bytes;nativePages.delete(key);}}
+function clearNativeCollectionPages(id,name){const prefix=`${id}:analysis:${name}:`;for(const [key,page] of nativePages)if(key.startsWith(prefix)){nativePageBytes-=page.bytes;nativePages.delete(key);}}
 function nativeDouble(value){if(value==null||!Number.isFinite(value))return null;const bytes=new Uint8Array(8);new DataView(bytes.buffer).setFloat64(0,value,true);return {$float64:btoa(String.fromCharCode(...bytes))};}
 function nativeFieldPlot(parsed,message,field,instanceKey,instance,fullRange){
   const zoom=!fullRange?appState.zoomWindow:null;
@@ -6566,7 +6570,7 @@ function startNativePlotRefresh(revision){
   worker.postMessage({metadata:parsed.nativeMetadata,catalog:parsed._fieldCatalog,needOverview,scrubberIndex:appState.scrubberIndex,state:{customFields:[...appState.customFields],activePreset:appState.activePreset,zoomWindow:appState.zoomWindow,altSourceMode:appState.altSourceMode,customAxisLimits:appState.customAxisLimits,axisLimits:appState.axisLimits,config:appState.config,timeMode:appState.timeMode}});
 }
 function nativeRawRows(id,name,length){
-  const read=i=>{const start=Math.floor(i/NATIVE_PAGE_ROWS)*NATIVE_PAGE_ROWS;return nativeCachedPage(`${id}:raw:${name}:${start}`,()=>nativeCall('ReadPage',id,name,start,NATIVE_PAGE_ROWS))[i-start];};
+  const read=i=>{const start=Math.floor(i/nativeRawPageRows)*nativeRawPageRows;return nativeCachedPage(`${id}:raw:${name}:${nativeRawPageRows}:${start}`,()=>nativeCall('ReadPage',id,name,start,nativeRawPageRows))[i-start];};
   return packedRows({length,keys(i){return Object.keys(read(i)||{});},get(i,key){return typeof key==='string'?read(i)?.[key]:undefined;},set(){throw Error('원본 로그는 읽기 전용입니다.');}});
 }
 function nativeCollectionRows(id,name,length,computed={}){
@@ -6575,7 +6579,7 @@ function nativeCollectionRows(id,name,length,computed={}){
 }
 function createNativeWritableRows(id,name,computed={}){
   nativeCall('BeginCollection',id,name);let writtenPages=0;const pages=new Map();
-  const save=(page,entry)=>{if(!entry.dirty)return;nativeCall('WriteCollectionPage',id,name,page,JSON.stringify(entry.rows,nativeEncode));writtenPages=Math.max(writtenPages,page+1);entry.dirty=false;clearNativePages(id);};
+  const save=(page,entry)=>{if(!entry.dirty)return;nativeCall('WriteCollectionPage',id,name,page,JSON.stringify(entry.rows,nativeEncode));writtenPages=Math.max(writtenPages,page+1);entry.dirty=false;clearNativeCollectionPages(id,name);};
   const load=page=>{
     let entry=pages.get(page);if(entry){pages.delete(page);pages.set(page,entry);return entry;}
     while(pages.size>=4){const oldest=pages.keys().next().value;save(oldest,pages.get(oldest));pages.delete(oldest);}
@@ -6593,6 +6597,7 @@ function createNativeWritableRows(id,name,computed={}){
 function makeNativeParsed(metadata){
   return {...metadata,storage:'lossless-packed',nativeMetadata:metadata,retainedBytes:0,
     tables:Object.fromEntries(Object.entries(metadata.tables).map(([name,length])=>[name,nativeRawRows(metadata.nativeId,name,length)])),
+    beginSensorScan(){nativeRawPageRows=512;},endSensorScan(){nativeRawPageRows=128;clearNativePages(metadata.nativeId);},
     releaseRawBytes(){clearNativePages(metadata.nativeId);},async ensureLoaded(){},
     dispose(){clearNativePages(metadata.nativeId);nativeCall('Release',metadata.nativeId);}
   };

@@ -78,6 +78,7 @@
     function analyzeParsedLog(parsed, cfg) {
       // Nearest-sample lookup requires ordered timestamps. Keep one sensor instance
       // for derived telemetry; raw field plots retain every instance separately.
+      parsed.beginSensorScan?.();
       const analysisMessages=new Set(['GPS','GPS2','CTUN','POS','BARO','BAR2','AHR2','ATT','VIBE','BAT','CURR','BCL','BCL2','RCOU','RCIN','MAG','MAG2','POWR','XKF1','NKF1','EV','ERR','MSG','MODE','PARM']);
       const t = Object.fromEntries(Object.entries(parsed.tables).filter(([name])=>analysisMessages.has(name)).map(([name, rows]) => {
         if(rows._packed){
@@ -94,6 +95,7 @@
         const primary = instanceKey ? Math.min(...new Set(ordered.map(r => r[instanceKey]).filter(Number.isFinite))) : null;
         return [name, instanceKey && Number.isFinite(primary) ? ordered.filter(r => r[instanceKey] === primary) : ordered];
       }));
+      parsed.endSensorScan?.();
       parsed.onAnalysisPhase?.('sensor-selection-and-ordering');
       const gpsRows = (t['GPS'] && t['GPS'].length) ? t['GPS'] : (t['GPS2'] || []);
       const ctunRows = t['CTUN'] || [];

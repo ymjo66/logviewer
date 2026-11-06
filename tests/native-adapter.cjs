@@ -16,8 +16,8 @@ const context=vm.createContext({console,setTimeout,clearTimeout,setInterval,clea
 vm.runInContext(scripts.find(s=>s.includes('function detectBatteryCells')),context);vm.runInContext(scripts.find(s=>s.includes('function analyzeParsedLog')),context);vm.runInContext(fs.readFileSync('src/js/csv.js','utf8'),context);vm.runInContext(fs.readFileSync('src/js/native-disk.js','utf8'),context);encode=vm.runInContext('nativeEncode',context);
 const plain=v=>JSON.parse(JSON.stringify(v));
 (async()=>{
- for(const file of ['synthetic-flight.log','synthetic-ground.log','synthetic-battery12.log','synthetic-instances.log','synthetic-modes.log']){
-  context.text=fs.readFileSync('tests/fixtures/'+file,'utf8');raw=vm.runInContext('parseDataFlashTextLog(text)',context);context.raw=raw;
+ for(const file of (process.argv.length>2?process.argv.slice(2):['synthetic-flight.log','synthetic-ground.log','synthetic-battery12.log','synthetic-instances.log','synthetic-modes.log'])){
+  const input=fs.readFileSync(process.argv.length>2?file:'tests/fixtures/'+file);context.text=input.toString('utf8');context.binary=new Uint8Array(input);raw=vm.runInContext(/\.bin$/i.test(file)?'parseDataFlashBinary(binary)':'parseDataFlashTextLog(text)',context);context.raw=raw;
   const standard=vm.runInContext('analyzeParsedLog(raw,appState.config)',context);
   context.meta={nativeId:file,fileName:file,byteLength:100,fmtList:raw.fmtList,tables:Object.fromEntries(Object.entries(raw.tables).map(([name,rows])=>[name,rows.length])),rawCounts:raw.rawCounts,totalPackets:raw.totalPackets};
   const native=vm.runInContext('analyzeParsedLog(makeNativeParsed(meta),appState.config)',context);context.native=native;
@@ -29,6 +29,8 @@ const plain=v=>JSON.parse(JSON.stringify(v));
   context.csvLogs=[{fileName:'=test-'+file,analysis:restored}];context.csvStatus={textContent:''};
   for(const mode of ['summary','telemetry']){context.csvMode=mode;await vm.runInContext('streamNativeCsv(csvLogs,csvMode,["file","duration","sec","kst","autoRelAlt","volt"],{minSec:0,maxSec:120},csvStatus)',context);assert.equal(csvText,vm.runInContext('buildSelectedCsv(csvLogs,csvMode,["file","duration","sec","kst","autoRelAlt","volt"],{minSec:0,maxSec:120})',context),'streaming CSV matches existing output');}
  }
+ if(process.argv.length>2){console.log('PASS: real log every derived analysis output and CSV match unchanged analysis rules');return;}
+ context.cacheID='cache-check';vm.runInContext("nativeCachedPage(cacheID+':raw:TEST:0',()=> '[{\"Value\":123}]');nativeCachedPage(cacheID+':analysis:timeline:0',()=> '[{\"Value\":1}]');clearNativeCollectionPages(cacheID,'timeline');",context);assert.equal(vm.runInContext("nativePages.has(cacheID+':raw:TEST:0')",context),true,'timeline writes preserve immutable raw cache');assert.equal(vm.runInContext("nativePages.has(cacheID+':analysis:timeline:0')",context),false,'updated timeline cache invalidated');
  const rows=vm.runInContext('createNativeWritableRows("large","timeline")',context);
  for(let i=0;i<5000;i++)rows.push({sec:i,value:i===1999?NaN:i});
  for(let i=4999;i>=0;i--)rows[i].twice=i*2;rows._packed.backend.flush();

@@ -599,7 +599,7 @@
       for(const [axisId,axis] of Object.entries(axes)){
         const rangeKey=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
         if(shownRanges.has(rangeKey)){
-          axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
+          axis.display=false;axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
           axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;
         }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;}
       }

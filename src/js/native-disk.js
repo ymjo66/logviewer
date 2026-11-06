@@ -2,6 +2,7 @@
 // Native files/indexes live on disk. JS retains only a bounded page cache.
 const nativeDiskBridge=window.chrome?.webview?.hostObjects?.sync?.diskLogs||null;
 const NATIVE_PAGE_ROWS=128,NATIVE_CACHE_LIMIT=16*1024*1024;
+let nativeRawPageRows=128;
 const nativePages=new Map();let nativePageBytes=0,nativeRequestSerial=0;
 const nativeRequests=new Map();
 let nativeProfileEnabled=false;const nativeRpcStats={};
@@ -33,6 +34,7 @@ function nativeCachedPage(key,load){
   return rows;
 }
 function clearNativePages(id){for(const [key,page] of nativePages)if(key.startsWith(id+':')){nativePageBytes-=page.bytes;nativePages.delete(key);}}
+function clearNativeCollectionPages(id,name){const prefix=`${id}:analysis:${name}:`;for(const [key,page] of nativePages)if(key.startsWith(prefix)){nativePageBytes-=page.bytes;nativePages.delete(key);}}
 function nativeDouble(value){if(value==null||!Number.isFinite(value))return null;const bytes=new Uint8Array(8);new DataView(bytes.buffer).setFloat64(0,value,true);return {$float64:btoa(String.fromCharCode(...bytes))};}
 function nativeFieldPlot(parsed,message,field,instanceKey,instance,fullRange){
   const zoom=!fullRange?appState.zoomWindow:null;
@@ -75,7 +77,7 @@ function startNativePlotRefresh(revision){
   worker.postMessage({metadata:parsed.nativeMetadata,catalog:parsed._fieldCatalog,needOverview,scrubberIndex:appState.scrubberIndex,state:{customFields:[...appState.customFields],activePreset:appState.activePreset,zoomWindow:appState.zoomWindow,altSourceMode:appState.altSourceMode,customAxisLimits:appState.customAxisLimits,axisLimits:appState.axisLimits,config:appState.config,timeMode:appState.timeMode}});
 }
 function nativeRawRows(id,name,length){
-  const read=i=>{const start=Math.floor(i/NATIVE_PAGE_ROWS)*NATIVE_PAGE_ROWS;return nativeCachedPage(`${id}:raw:${name}:${start}`,()=>nativeCall('ReadPage',id,name,start,NATIVE_PAGE_ROWS))[i-start];};
+  const read=i=>{const start=Math.floor(i/nativeRawPageRows)*nativeRawPageRows;return nativeCachedPage(`${id}:raw:${name}:${nativeRawPageRows}:${start}`,()=>nativeCall('ReadPage',id,name,start,nativeRawPageRows))[i-start];};
   return packedRows({length,keys(i){return Object.keys(read(i)||{});},get(i,key){return typeof key==='string'?read(i)?.[key]:undefined;},set(){throw Error('원본 로그는 읽기 전용입니다.');}});
 }
 function nativeCollectionRows(id,name,length,computed={}){
@@ -84,7 +86,7 @@ function nativeCollectionRows(id,name,length,computed={}){
 }
 function createNativeWritableRows(id,name,computed={}){
   nativeCall('BeginCollection',id,name);let writtenPages=0;const pages=new Map();
-  const save=(page,entry)=>{if(!entry.dirty)return;nativeCall('WriteCollectionPage',id,name,page,JSON.stringify(entry.rows,nativeEncode));writtenPages=Math.max(writtenPages,page+1);entry.dirty=false;clearNativePages(id);};
+  const save=(page,entry)=>{if(!entry.dirty)return;nativeCall('WriteCollectionPage',id,name,page,JSON.stringify(entry.rows,nativeEncode));writtenPages=Math.max(writtenPages,page+1);entry.dirty=false;clearNativeCollectionPages(id,name);};
   const load=page=>{
     let entry=pages.get(page);if(entry){pages.delete(page);pages.set(page,entry);return entry;}
     while(pages.size>=4){const oldest=pages.keys().next().value;save(oldest,pages.get(oldest));pages.delete(oldest);}
@@ -102,6 +104,7 @@ function createNativeWritableRows(id,name,computed={}){
 function makeNativeParsed(metadata){
   return {...metadata,storage:'lossless-packed',nativeMetadata:metadata,retainedBytes:0,
     tables:Object.fromEntries(Object.entries(metadata.tables).map(([name,length])=>[name,nativeRawRows(metadata.nativeId,name,length)])),
+    beginSensorScan(){nativeRawPageRows=512;},endSensorScan(){nativeRawPageRows=128;clearNativePages(metadata.nativeId);},
     releaseRawBytes(){clearNativePages(metadata.nativeId);},async ensureLoaded(){},
     dispose(){clearNativePages(metadata.nativeId);nativeCall('Release',metadata.nativeId);}
   };
