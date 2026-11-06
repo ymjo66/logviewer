@@ -17,7 +17,7 @@ namespace LogViewer {
  }
  internal sealed class DiskTable { public string Name,Index;public long Count;public double LastTime=Double.NegativeInfinity;public bool Ordered=true;public BinaryWriter Writer; }
  internal sealed class DiskLog {
-  public string Id,Name,Source,Root,Snapshot,AnalysisId,Catalog;public long Size,Packets;public bool Ready,Text;
+  public string Id,Name,Source,Root,AnalysisId,Catalog;public long Size,Packets;public bool Ready,Text;public FileStream SourceHandle;
   public readonly List<DiskSchema> Schemas=new List<DiskSchema>();
   public readonly Dictionary<string,DiskTable> Tables=new Dictionary<string,DiskTable>();
  }
@@ -36,7 +36,7 @@ namespace LogViewer {
   internal object[] Register(IEnumerable<string> files){lock(gate){return files.Select(source=>{
    var info=new FileInfo(source);if(!info.Exists)throw new IOException("선택한 파일이 없습니다.");
    string id=Guid.NewGuid().ToString("N"),folder=Path.Combine(root,id);Directory.CreateDirectory(folder);
-   var log=new DiskLog{Id=id,Name=info.Name,Source=info.FullName,Size=info.Length,Root=folder,Snapshot=Path.Combine(folder,"original.dat"),Text=info.Extension.Equals(".log",StringComparison.OrdinalIgnoreCase)};
+   var log=new DiskLog{Id=id,Name=info.Name,Source=info.FullName,Size=info.Length,Root=folder,Text=info.Extension.Equals(".log",StringComparison.OrdinalIgnoreCase)};
    logs.Add(id,log);return (object)new {nativeId=id,name=log.Name,size=log.Size};
   }).ToArray();}}
   DiskLog Log(string id){DiskLog log;if(!logs.TryGetValue(id,out log))throw new IOException("이 창에서 첨부한 로그가 아닙니다.");return log;}
@@ -48,17 +48,16 @@ namespace LogViewer {
    var log=Log(id);if(log.Ready)return Metadata(log);
    try{
     var before=new FileInfo(log.Source);long stamp=before.LastWriteTimeUtc.Ticks;
-    using(var input=new FileStream(log.Source,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan))
-    using(var output=new FileStream(log.Snapshot,FileMode.Create,FileAccess.Write,FileShare.Read,1024*1024)){
-     var buffer=new byte[1024*1024];int n;long copied=0;while((n=input.Read(buffer,0,buffer.Length))>0){output.Write(buffer,0,n);copied+=n;progress(.25*copied/Math.Max(1,log.Size),"원본 디스크 캐시");}
-     if(copied!=log.Size)throw new IOException("읽는 동안 원본 크기가 변경되었습니다.");
-    }
-    var after=new FileInfo(log.Source);if(after.Length!=log.Size||after.LastWriteTimeUtc.Ticks!=stamp)throw new IOException("읽는 동안 원본 파일이 변경되었습니다. 다시 첨부하세요.");
+    // Keep only a read handle; deny writes/deletion while this log is attached.
+    log.SourceHandle=new FileStream(log.Source,FileMode.Open,FileAccess.Read,FileShare.Read,4096,FileOptions.RandomAccess);
+    if(log.SourceHandle.Length!=log.Size)throw new IOException("선택한 뒤 원본 크기가 변경되었습니다. 다시 첨부하세요.");
     if(log.Text)IndexText(log,progress);else IndexBinary(log,progress);
+    var after=new FileInfo(log.Source);if(after.Length!=log.Size||after.LastWriteTimeUtc.Ticks!=stamp)throw new IOException("읽는 동안 원본 파일이 변경되었습니다. 다시 첨부하세요.");
     foreach(var table in log.Tables.Values){if(table.Writer!=null){table.Writer.Dispose();table.Writer=null;}}
     log.Ready=true;string metadata=Metadata(log);File.WriteAllText(Path.Combine(log.Root,"manifest.json"),metadata,Encoding.UTF8);progress(1,"디스크 인덱스 완료");return metadata;
    }catch{
     foreach(var table in log.Tables.Values)if(table.Writer!=null){table.Writer.Dispose();table.Writer=null;}
+    if(log.SourceHandle!=null){log.SourceHandle.Dispose();log.SourceHandle=null;}
     throw;
    }
   }}
@@ -73,7 +72,7 @@ namespace LogViewer {
   static void AddPacket(DiskLog log,DiskSchema schema,long position,int length,double time){var table=log.Tables[schema.name];table.Writer.Write(position);table.Writer.Write(schema.id);table.Writer.Write(length);table.Writer.Write(time);if(!Finite(time)||time<table.LastTime)table.Ordered=false;table.LastTime=time;table.Count++;schema.count++;log.Packets++;}
   void IndexBinary(DiskLog log,Action<double,string> progress){
    var active=new DiskSchema[256];var carry=new byte[0];long start=0;
-   using(var input=new FileStream(log.Snapshot,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan)){
+   using(var input=new FileStream(log.Source,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan)){
     var block=new byte[4*1024*1024];int n;
     while((n=input.Read(block,0,block.Length))>0){
      var scan=new byte[carry.Length+n];Buffer.BlockCopy(carry,0,scan,0,carry.Length);Buffer.BlockCopy(block,0,scan,carry.Length,n);long origin=start-carry.Length;int p=0;
@@ -89,17 +88,17 @@ namespace LogViewer {
       var current=active[type];if(current==null||current.length<3){p+=2;continue;}if(p+current.length>scan.Length)break;
       AddPacket(log,current,origin+p,current.length,current.timeOffset<0?Double.NaN:Numeric(scan,p+current.timeOffset,current.timeType));p+=current.length;
      }
-     carry=new byte[scan.Length-p];Buffer.BlockCopy(scan,p,carry,0,carry.Length);start+=n;progress(.25+.75*start/Math.Max(1,log.Size),"전체 패킷 디스크 인덱스");
+     carry=new byte[scan.Length-p];Buffer.BlockCopy(scan,p,carry,0,carry.Length);start+=n;progress(start/Math.Max(1,log.Size),"전체 패킷 디스크 인덱스");
     }
    }
   }
   void IndexText(DiskLog log,Action<double,string> progress){
    var active=new Dictionary<string,DiskSchema>();long position=0,lineStart=0;var line=new MemoryStream();
-   using(var input=new FileStream(log.Snapshot,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan)){
+   using(var input=new FileStream(log.Source,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan)){
     var block=new byte[1024*1024];int n;
     while((n=input.Read(block,0,block.Length))>0){for(int i=0;i<n;i++,position++){
      if(block[i]==10){IndexTextLine(log,active,line.ToArray(),lineStart);line.SetLength(0);lineStart=position+1;}else line.WriteByte(block[i]);
-    }progress(.25+.75*position/Math.Max(1,log.Size),"전체 텍스트 디스크 인덱스");}
+    }progress(position/Math.Max(1,log.Size),"전체 텍스트 디스크 인덱스");}
    }
    if(line.Length>0)IndexTextLine(log,active,line.ToArray(),lineStart);line.Dispose();
   }
@@ -117,7 +116,7 @@ namespace LogViewer {
   }
   byte[] Bytes(DiskLog log,long position,int count){
    if(position<0||count<0||position+count>log.Size)throw new IOException("잘못된 원본 구간입니다.");
-   if(mappedId!=log.Id){CloseMap();mapped=MemoryMappedFile.CreateFromFile(log.Snapshot,FileMode.Open,null,0,MemoryMappedFileAccess.Read);mappedId=log.Id;}
+   if(mappedId!=log.Id){CloseMap();mapped=MemoryMappedFile.CreateFromFile(log.SourceHandle,null,0,MemoryMappedFileAccess.Read,HandleInheritability.None,true);mappedId=log.Id;}
    if(view==null||position<viewStart||position+count>viewStart+viewLength){if(view!=null)view.Dispose();viewStart=position/WindowBytes*WindowBytes;viewLength=Math.Min(log.Size-viewStart,Math.Max(WindowBytes,position-viewStart+count));view=mapped.CreateViewAccessor(viewStart,viewLength,MemoryMappedFileAccess.Read);}
    var result=new byte[count];view.ReadArray(position-viewStart,result,0,count);return result;
   }
@@ -263,7 +262,7 @@ namespace LogViewer {
   }}
   public void StoreAnalysis(string id,string json){lock(gate){if(json.Length>16*1024*1024)throw new IOException("분석 메타데이터가 너무 큽니다.");File.WriteAllText(Path.Combine(Store(id).Root,"analysis.json"),json,Encoding.UTF8);}}
   public string GetAnalysis(string id){lock(gate){var log=Store(id);return File.ReadAllText(Path.Combine(log.AnalysisId!=null?Store(log.AnalysisId).Root:log.Root,"analysis.json"),Encoding.UTF8);}}
-  public void Release(string id){lock(gate){DiskLog log;if(!logs.TryGetValue(id,out log))return;if(mappedId==id)CloseMap();foreach(string key in analysisStores.Where(pair=>pair.Value.Source==id).Select(pair=>pair.Key).ToArray())analysisStores.Remove(key);logs.Remove(id);Directory.Delete(log.Root,true);}}
+  public void Release(string id){lock(gate){DiskLog log;if(!logs.TryGetValue(id,out log))return;if(mappedId==id)CloseMap();foreach(string key in analysisStores.Where(pair=>pair.Value.Source==id).Select(pair=>pair.Key).ToArray())analysisStores.Remove(key);logs.Remove(id);if(log.SourceHandle!=null)log.SourceHandle.Dispose();Directory.Delete(log.Root,true);}}
   public string BeginCsvExport(string suggestedName){
    using(var dialog=new SaveFileDialog{Filter="CSV 파일 (*.csv)|*.csv",DefaultExt="csv",AddExtension=true,FileName=Path.GetFileName(suggestedName),OverwritePrompt=true}){
     if((owner==null?dialog.ShowDialog():dialog.ShowDialog(owner))!=DialogResult.OK)return null;
@@ -277,7 +276,7 @@ namespace LogViewer {
    switch(method){case "GetFieldCatalog":return GetFieldCatalog(s(0));case "BeginAnalysis":return BeginAnalysis(s(0));case "CommitAnalysis":CommitAnalysis(s(0),s(1));return null;case "AbortAnalysis":AbortAnalysis(s(0));return null;case "ReadPage":return ReadPage(s(0),s(1),n(2),n(3));case "BeginCollection":BeginCollection(s(0),s(1));return null;case "AppendCollection":AppendCollection(s(0),s(1),s(2));return null;case "WriteCollectionPage":WriteCollectionPage(s(0),s(1),n(2),s(3));return null;case "ReadCollection":return ReadCollection(s(0),s(1),n(2));case "StoreAnalysis":StoreAnalysis(s(0),s(1));return null;case "GetAnalysis":return GetAnalysis(s(0));default:throw new IOException("허용되지 않은 요청입니다.");}
   }
   void CloseMap(){if(view!=null){view.Dispose();view=null;}if(mapped!=null){mapped.Dispose();mapped=null;}mappedId=null;}
-  public void Dispose(){lock(gate){CloseMap();foreach(string token in exports.Keys.ToArray())FinishCsvExport(token,false);foreach(var log in logs.Values)foreach(var table in log.Tables.Values)if(table.Writer!=null)table.Writer.Dispose();logs.Clear();analysisStores.Clear();if(Directory.Exists(root))Directory.Delete(root,true);}}
+  public void Dispose(){lock(gate){CloseMap();foreach(string token in exports.Keys.ToArray())FinishCsvExport(token,false);foreach(var log in logs.Values){foreach(var table in log.Tables.Values)if(table.Writer!=null)table.Writer.Dispose();if(log.SourceHandle!=null)log.SourceHandle.Dispose();}logs.Clear();analysisStores.Clear();if(Directory.Exists(root))Directory.Delete(root,true);}}
   internal static int Test(string source,string report,bool dump){
    var timer=System.Diagnostics.Stopwatch.StartNew();string folder=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"native-test-"+Guid.NewGuid().ToString("N"));
    using(var engine=new DiskLogBridge(folder,"")){
@@ -291,6 +290,20 @@ namespace LogViewer {
     string generation=engine.BeginAnalysis(id);engine.StoreAnalysis(generation,"{\"generation\":1}");engine.CommitAnalysis(id,generation);string abandoned=engine.BeginAnalysis(id);engine.StoreAnalysis(abandoned,"{\"generation\":2}");engine.AbortAnalysis(abandoned);if(engine.GetAnalysis(id)!="{\"generation\":1}")throw new IOException("실패한 재분석이 기존 결과를 변경했습니다.");
     File.WriteAllText(report,Json().Serialize(new {metadata=Json().DeserializeObject(metadata),catalog=Json().DeserializeObject(engine.GetFieldCatalog(id)),rows,plots,ranges,atomicAnalysis=true,elapsedSeconds=timer.Elapsed.TotalSeconds,managedBytes=GC.GetTotalMemory(false),workingSet=System.Diagnostics.Process.GetCurrentProcess().WorkingSet64}),Encoding.UTF8);
    }return 0;
+  }
+  internal static int TestSourceProtection(string report){
+   string folder=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"native-source-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);string source=Path.Combine(folder,"input.log"),cache=Path.Combine(folder,"cache");
+   byte[] original=Encoding.UTF8.GetBytes("FMT, 1, 15, TEST, Qf, TimeUS, Value\nTEST, 1000000, 7\n");File.WriteAllBytes(source,original);bool blockedWrite=false,blockedMove=false;
+   try{using(var engine=new DiskLogBridge(cache,"")){
+    var registration=Json().Deserialize<Dictionary<string,object>>(Json().Serialize(engine.Register(new[]{source})[0]));string id=(string)registration["nativeId"];engine.Import(id,(fraction,stage)=>{});
+    if(Directory.GetFiles(cache,"original.dat",SearchOption.AllDirectories).Length!=0)throw new IOException("원본 복사본이 생성되었습니다.");
+    try{using(var writer=new FileStream(source,FileMode.Open,FileAccess.Write,FileShare.ReadWrite)){} }catch(IOException){blockedWrite=true;}
+    try{File.Move(source,source+".moved");}catch(IOException){blockedMove=true;}
+    if(!blockedWrite||!blockedMove)throw new IOException("사용 중 원본 보호 실패");engine.ReadPage(id,"TEST",0,1);engine.Release(id);
+    using(var writer=new FileStream(source,FileMode.Open,FileAccess.Write,FileShare.ReadWrite)){}
+    if(!File.ReadAllBytes(source).SequenceEqual(original))throw new IOException("원본 내용이 변경되었습니다.");
+   }File.WriteAllText(report,Json().Serialize(new {noSourceCopy=true,blockedWrite,blockedMove,unlockedAfterRelease=true,sourceUnchanged=true,cacheRemoved=!Directory.Exists(cache)}),Encoding.UTF8);}
+   finally{if(Directory.Exists(folder))Directory.Delete(folder,true);}return 0;
   }
   internal static int TestBatch(string source,int count,string report){
    if(count<1||count>200)throw new IOException("테스트 개수가 잘못되었습니다.");

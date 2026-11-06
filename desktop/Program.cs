@@ -28,6 +28,7 @@ namespace LogViewer {
     ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
     if(args.Length>0 && args[0]=="--apply-update")return Updater.Apply(args);
     if(args.Length>1 && args[0]=="--self-test")return SelfTest(args[1]);
+    if(args.Length>1 && args[0]=="--disk-source-test")return DiskLogBridge.TestSourceProtection(args[1]);
     if(args.Length>1 && args[0]=="--verify-release")return VerifyRelease(args[1]);
     if(args.Length>1 && args[0]=="--stage-update")return StageUpdate(args[1]);
     if(args.Length>1 && args[0]=="--verify-fallback")return StageUpdate(args[1],true);

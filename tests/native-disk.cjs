@@ -4,6 +4,10 @@ const html=fs.readFileSync('index.html','utf8'),scripts=[...html.matchAll(/<scri
 const context=vm.createContext({console,setTimeout,clearTimeout,setInterval,clearInterval,TextDecoder,Uint8Array,DataView,ArrayBuffer,Blob,window:{addEventListener(){}},document:{},Chart:{register(){}}});
 vm.runInContext(scripts.find(s=>s.includes('function detectBatteryCells')),context);vm.runInContext(scripts.find(s=>s.includes('function analyzeParsedLog')),context);
 const decode=(key,v)=>{if(v&&typeof v==='object'){if(v.$float64)return Buffer.from(v.$float64,'base64').readDoubleLE();if('$literal'in v){const n=Number(v.$literal);return Number.isFinite(n)&&(!['q','Q'].includes(v.$format)||Number.isSafeInteger(n))?n:v.$literal;}if(v.$number)return {'NaN':NaN,'Infinity':Infinity,'-Infinity':-Infinity,'-0':-0}[v.$number];}return v;};
+fs.mkdirSync('artifacts',{recursive:true});
+const protection=spawnSync(path.resolve(process.env.LOGVIEWER_TEST_EXE||'dist/LogViewer.exe'),['--disk-source-test','artifacts/native-source-protection.json'],{windowsHide:true,encoding:'utf8',timeout:30000});assert.equal(protection.status,0,protection.stderr);
+for(const value of Object.values(JSON.parse(fs.readFileSync('artifacts/native-source-protection.json','utf8').replace(/^\uFEFF/,''))))assert.equal(value,true);
+console.log('PASS: direct source reading without copy, write/delete lock, release unlock, source bytes and cache cleanup');
 async function verify(input){
  const name=path.basename(input),report='artifacts/native-verify-'+name+'.json';
  const result=spawnSync(path.resolve(process.env.LOGVIEWER_TEST_EXE||'dist/LogViewer.exe'),['--disk-dump',input,report],{windowsHide:true,encoding:'utf8',timeout:240000});assert.equal(result.status,0,result.stderr);
