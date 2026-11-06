@@ -2225,6 +2225,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         const primary = instanceKey ? Math.min(...new Set(ordered.map(r => r[instanceKey]).filter(Number.isFinite))) : null;
         return [name, instanceKey && Number.isFinite(primary) ? ordered.filter(r => r[instanceKey] === primary) : ordered];
       }));
+      parsed.onAnalysisPhase?.('sensor-selection-and-ordering');
       const gpsRows = (t['GPS'] && t['GPS'].length) ? t['GPS'] : (t['GPS2'] || []);
       const ctunRows = t['CTUN'] || [];
       const posRows = t['POS'] || [];
@@ -2365,6 +2366,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       const posRelOffset = calcBaseline(posRows, 'RelHomeAlt', 1.0);
       const gpsAmslOffset = calcBaseline(gpsRows, 'Alt', 1.0);
 
+      parsed.onAnalysisPhase?.('time-and-ground-reference');
       const timeline = parsed.nativeId?createNativeWritableRows(parsed.nativeAnalysisStore||parsed.nativeId,'timeline',{kstStr:secToKstStr,bootStr:secToBootStr}):parsed.storage==='lossless-packed'?createColumnRows({kstStr:secToKstStr,bootStr:secToBootStr}):[];
       for (let i = 0; i < spineRows.length; i++) {
         const sp = spineRows[i];
@@ -2457,6 +2459,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         });
       }
 
+      parsed.onAnalysisPhase?.('timeline-construction');
       // Multi-Sortie Detection (1회 이착륙 = 1쏘티, 한 로그 내 다중 이착륙 완벽 분리)
       const rawSorties = [];
 
@@ -2748,6 +2751,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       //    Throttle/Current-Correlated EMI Interference (CompassMot principle)
       // ========================================================================
       // First compute raw mag_field norm and 5-point smoothed mag_field to reject 1-sample spike noise
+      parsed.onAnalysisPhase?.('flight-sorties-and-mode');
       const rawMagNorms = timeline.map(pt => Math.hypot(pt.magX, pt.magY, pt.magZ));
       const smoothMagNorms = rawMagNorms.map((val, idx) => {
         if (val <= 10) return 0;
@@ -2941,6 +2945,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       const hasEkfYawReset = evRows.some(ev => ev.Id === 62);
       const isAbnormalBaseMag = baseMagField > 0 && (baseMagField < 180 || baseMagField > 850);
 
+      parsed.onAnalysisPhase?.('magnetic-and-telemetry-metrics');
       let firmwareStr = 'ArduPilot Vehicle';
       let hardwareStr = '';
       for (const m of msgRows) {
@@ -3276,6 +3281,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
         });
       }
       unifiedEvents.sort((a, b) => a.sec - b.sec);
+      parsed.onAnalysisPhase?.('diagnostics-and-events');
 
       return {
         isLogCutoff,
@@ -3378,7 +3384,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
     let plotRefreshTimer=null,plotRevision=0,plotWorker=null,plotGesture=false;
     function setPlotQueryStatus(text){
       const title=document.getElementById?.('chartTitleLabel');if(!title)return;
-      let status=document.getElementById('plotQueryStatus');if(!status){status=document.createElement('span');status.id='plotQueryStatus';status.setAttribute('role','status');status.style.cssText='display:block;font-size:11px;color:#64748b;margin-top:4px';title.after(status);}status.textContent=text;
+      let status=document.getElementById('plotQueryStatus');if(!status){status=document.createElement('span');status.id='plotQueryStatus';status.setAttribute('role','status');status.style.cssText='position:absolute;right:8px;top:4px;max-width:80%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#64748b;pointer-events:none;background:rgba(255,255,255,.92);padding:0 3px';const card=title.closest('.glass-card')||title.parentElement;card.style.position='relative';card.append(status);}status.textContent=text;
     }
     function cancelPlotRefresh() {
       plotRevision++;if(plotRefreshTimer!==null){clearTimeout(plotRefreshTimer);plotRefreshTimer=null;}
@@ -3949,6 +3955,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
 
     function synchronizePlotAxes(config,fields=[]) {
       const custom=!!config.customAxes,axes={},groups=new Map();
+      const memberships=new Map();
       config.datasets.forEach((dataset,index)=>{
         const original=dataset.yAxisID||'y',axisId=custom?original:customFieldAxisId(index);
         const field=custom?fields.find((field,i)=>customFieldAxisId(i)===original):null;
@@ -3959,6 +3966,7 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
           ticks:{...previous?.ticks,color,font:{family:'Arial',size:11}},border:{...previous?.border,color},
           grid:{drawOnChartArea:index===0,color:'#e5e5e5'}};
         dataset.yAxisID=axisId;
+        memberships.set(axisId,group);
         if(!groups.has(group))groups.set(group,{min:Infinity,max:-Infinity,axes:new Set()});
         const shared=groups.get(group);shared.axes.add(axisId);
         if(dataset.statistics){shared.min=Math.min(shared.min,dataset.statistics.min);shared.max=Math.max(shared.max,dataset.statistics.max);}
@@ -3967,6 +3975,14 @@ async function parseTextFileChunks(file,onProgress,chunkSize) {
       for(const group of groups.values()){
         const bounds=commonPlotBounds(group.min,group.max);if(!bounds)continue;
         for(const axisId of group.axes){axes[axisId].min??=bounds.min;axes[axisId].max??=bounds.max;}
+      }
+      const shownRanges=new Set();
+      for(const [axisId,axis] of Object.entries(axes)){
+        const rangeKey=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
+        if(shownRanges.has(rangeKey)){
+          axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
+          axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;
+        }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;}
       }
       config.customAxes=axes;return config;
     }
@@ -6412,7 +6428,14 @@ function synchronizeComparisonAxes(result){
     if(!groups.has(family))groups.set(family,{min:Infinity,max:-Infinity,axes:[]});const group=groups.get(family);group.axes.push(axisId);
     for(const point of dataset.data)if(Number.isFinite(point.y)){group.min=Math.min(group.min,point.y);group.max=Math.max(group.max,point.y);}
   }
-  for(const group of groups.values()){const bounds=commonPlotBounds(group.min,group.max);if(bounds)for(const axis of group.axes)Object.assign(axes[axis],bounds);}
+  for(const group of groups.values()){
+    const bounds=commonPlotBounds(group.min,group.max);
+    for(const [index,id] of group.axes.entries()){
+      const axis=axes[id];if(bounds)Object.assign(axis,bounds);
+      axis.ticks.display=index===0;axis.ticks.font={size:10};axis.ticks.padding=2;
+      if(index>0){axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
+    }
+  }
   result.axes=axes;
 }
 function refreshLogComparison(invalidate=true){
@@ -6472,6 +6495,8 @@ const nativeDiskBridge=window.chrome?.webview?.hostObjects?.sync?.diskLogs||null
 const NATIVE_PAGE_ROWS=128,NATIVE_CACHE_LIMIT=16*1024*1024;
 const nativePages=new Map();let nativePageBytes=0,nativeRequestSerial=0;
 const nativeRequests=new Map();
+let nativeProfileEnabled=false;const nativeRpcStats={};
+function nativeProfileNow(){return typeof performance!=='undefined'?performance.now():Date.now();}
 function nativeDecode(key,value){
   if(value&&typeof value==='object'){
     if(value.$float64){const bytes=Uint8Array.from(atob(value.$float64),c=>c.charCodeAt(0));return new DataView(bytes.buffer).getFloat64(0,true);}
@@ -6482,8 +6507,11 @@ function nativeDecode(key,value){
 function nativeEncode(key,value){if(typeof value==='number'&&(!Number.isFinite(value)||Object.is(value,-0)))return {$number:Object.is(value,-0)?'-0':String(value)};return value;}
 function nativeCall(method,...args){
   if(typeof __nativeDiskEndpoint==='string'){
+    const started=nativeProfileEnabled?nativeProfileNow():0;
     const request=new XMLHttpRequest();request.open('POST',__nativeDiskEndpoint,false);request.setRequestHeader('Content-Type','application/json');request.send(JSON.stringify({method,args}));
-    const response=JSON.parse(request.responseText);if(request.status!==200||response.error)throw Error(response.error||`디스크 엔진 HTTP ${request.status}`);return response.result;
+    const response=JSON.parse(request.responseText);if(request.status!==200||response.error)throw Error(response.error||`디스크 엔진 HTTP ${request.status}`);
+    if(nativeProfileEnabled){const stats=nativeRpcStats[method]??={calls:0,milliseconds:0,nativeMilliseconds:0,responseCharacters:0};stats.calls++;stats.milliseconds+=nativeProfileNow()-started;stats.nativeMilliseconds+=response.nativeMilliseconds||0;stats.responseCharacters+=request.responseText.length;}
+    return response.result;
   }
   if(!nativeDiskBridge)throw Error('EXE 디스크 엔진에 연결되지 않았습니다.');
   return nativeDiskBridge[method](...args);
@@ -6622,13 +6650,30 @@ async function streamNativeCsv(logs,mode,keys,range,status){
   }catch(error){nativeCall('FinishCsvExport',token,false);throw error;}
 }
 async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
+  const analysisStarted=nativeProfileNow();
   const source=[
     'const window=self;const document={};const Chart={register(){}};',
     `const __nativeDiskEndpoint=${JSON.stringify(nativeCall('Endpoint'))};`,
     document.getElementById('battery-core').textContent,
     Array.from(document.querySelectorAll('script')).find(script=>script.textContent.includes('function analyzeParsedLog(')).textContent,
     document.getElementById('native-disk-core').textContent,
-    `self.onmessage=async(event)=>{let store;try{const {metadata,cfg,altSourceMode,timeMode,catalog}=event.data;appState.config=cfg;appState.altSourceMode=altSourceMode;appState.timeMode=timeMode;const parsed=makeNativeParsed(metadata);store=nativeCall('BeginAnalysis',parsed.nativeId);parsed.nativeAnalysisStore=store;self.postMessage({type:'progress',fraction:0,phase:'전체 패킷 분석 중'});const analysis=analyzeParsedLog(parsed,cfg);analysis.timeline._packed?.backend.compact();self.postMessage({type:'progress',fraction:0,phase:'전체 필드·인스턴스 목록 확인'});const fieldCatalog=catalog||JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);const result=await storeNativeAnalysis(store,analysis,(fraction,phase)=>self.postMessage({type:'progress',fraction,phase}));result.catalog=fieldCatalog;nativeCall('CommitAnalysis',parsed.nativeId,store);self.postMessage({type:'done',result});}catch(error){if(store)try{nativeCall('AbortAnalysis',store);}catch{}self.postMessage({type:'error',message:error.message,stack:error.stack});}};`
+    `self.onmessage=async(event)=>{let store;try{
+      const {metadata,cfg,altSourceMode,timeMode,catalog}=event.data;nativeProfileEnabled=!!metadata.profileEnabled;
+      appState.config=cfg;appState.altSourceMode=altSourceMode;appState.timeMode=timeMode;
+      const parsed=makeNativeParsed(metadata),profile={stages:{},analysisPhases:[],rpc:nativeRpcStats};
+      store=nativeCall('BeginAnalysis',parsed.nativeId);parsed.nativeAnalysisStore=store;
+      let phaseStart=nativeProfileNow(),lastRpc=0;
+      if(nativeProfileEnabled)parsed.onAnalysisPhase=name=>{const now=nativeProfileNow(),rpc=Object.values(nativeRpcStats).reduce((sum,item)=>sum+item.milliseconds,0);profile.analysisPhases.push({name,milliseconds:now-phaseStart,rpcMilliseconds:rpc-lastRpc});phaseStart=now;lastRpc=rpc;};
+      self.postMessage({type:'progress',fraction:0,phase:'전체 패킷 분석 중'});
+      let started=nativeProfileNow();const analysis=analyzeParsedLog(parsed,cfg);profile.stages.analysis=nativeProfileNow()-started;
+      started=nativeProfileNow();analysis.timeline._packed?.backend.compact();profile.stages.timelineFlush=nativeProfileNow()-started;
+      self.postMessage({type:'progress',fraction:0,phase:'전체 필드·인스턴스 목록 확인'});
+      started=nativeProfileNow();const fieldCatalog=catalog||JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);profile.stages.fieldCatalog=nativeProfileNow()-started;
+      started=nativeProfileNow();const result=await storeNativeAnalysis(store,analysis,(fraction,phase)=>self.postMessage({type:'progress',fraction,phase}));profile.stages.resultStorage=nativeProfileNow()-started;
+      result.catalog=fieldCatalog;started=nativeProfileNow();nativeCall('CommitAnalysis',parsed.nativeId,store);profile.stages.commit=nativeProfileNow()-started;
+      profile.timelineRows=analysis.timeline.length;profile.fieldCount=fieldCatalog.reduce((sum,item)=>sum+item.fields.length,0);result.profile=profile;
+      self.postMessage({type:'done',result});
+    }catch(error){if(store)try{nativeCall('AbortAnalysis',store);}catch{}self.postMessage({type:'error',message:error.message,stack:error.stack});}};`
   ].join('\n');
   const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'})),worker=new Worker(url);URL.revokeObjectURL(url);
   const result=await new Promise((resolve,reject)=>{
@@ -6637,7 +6682,9 @@ async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
     worker.onerror=e=>{finish();reject(Error(e.message||'백그라운드 분석 오류'));};
     worker.postMessage({metadata:parsed.nativeMetadata,cfg:{...cfg},altSourceMode:appState.altSourceMode,timeMode:appState.timeMode,catalog:parsed._fieldCatalog});
   });
-  parsed._fieldCatalog=result.catalog;clearNativePages(parsed.nativeId);return restoreNativeAnalysis(parsed.nativeId,result);
+  parsed._fieldCatalog=result.catalog;
+  if(parsed.nativeMetadata.profileEnabled){parsed.loadProfile={fileName:parsed.fileName,bytes:parsed.byteLength,packets:parsed.totalPackets,indexMilliseconds:parsed.nativeMetadata.indexMilliseconds,analysisWallMilliseconds:nativeProfileNow()-analysisStarted,...result.profile};window.chrome.webview.postMessage(JSON.stringify({action:'disk.profile',profile:parsed.loadProfile}));}
+  clearNativePages(parsed.nativeId);return restoreNativeAnalysis(parsed.nativeId,result);
 }
 window.addEventListener('DOMContentLoaded',()=>{
   if(!nativeDiskBridge)return;

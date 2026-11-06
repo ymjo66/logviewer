@@ -116,7 +116,14 @@ function synchronizeComparisonAxes(result){
     if(!groups.has(family))groups.set(family,{min:Infinity,max:-Infinity,axes:[]});const group=groups.get(family);group.axes.push(axisId);
     for(const point of dataset.data)if(Number.isFinite(point.y)){group.min=Math.min(group.min,point.y);group.max=Math.max(group.max,point.y);}
   }
-  for(const group of groups.values()){const bounds=commonPlotBounds(group.min,group.max);if(bounds)for(const axis of group.axes)Object.assign(axes[axis],bounds);}
+  for(const group of groups.values()){
+    const bounds=commonPlotBounds(group.min,group.max);
+    for(const [index,id] of group.axes.entries()){
+      const axis=axes[id];if(bounds)Object.assign(axis,bounds);
+      axis.ticks.display=index===0;axis.ticks.font={size:10};axis.ticks.padding=2;
+      if(index>0){axis.title.text=String(axis.title.text).replace(/^[^.]+\./,'');axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;}
+    }
+  }
   result.axes=axes;
 }
 function refreshLogComparison(invalidate=true){

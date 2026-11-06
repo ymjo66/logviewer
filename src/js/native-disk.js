@@ -4,6 +4,8 @@ const nativeDiskBridge=window.chrome?.webview?.hostObjects?.sync?.diskLogs||null
 const NATIVE_PAGE_ROWS=128,NATIVE_CACHE_LIMIT=16*1024*1024;
 const nativePages=new Map();let nativePageBytes=0,nativeRequestSerial=0;
 const nativeRequests=new Map();
+let nativeProfileEnabled=false;const nativeRpcStats={};
+function nativeProfileNow(){return typeof performance!=='undefined'?performance.now():Date.now();}
 function nativeDecode(key,value){
   if(value&&typeof value==='object'){
     if(value.$float64){const bytes=Uint8Array.from(atob(value.$float64),c=>c.charCodeAt(0));return new DataView(bytes.buffer).getFloat64(0,true);}
@@ -14,8 +16,11 @@ function nativeDecode(key,value){
 function nativeEncode(key,value){if(typeof value==='number'&&(!Number.isFinite(value)||Object.is(value,-0)))return {$number:Object.is(value,-0)?'-0':String(value)};return value;}
 function nativeCall(method,...args){
   if(typeof __nativeDiskEndpoint==='string'){
+    const started=nativeProfileEnabled?nativeProfileNow():0;
     const request=new XMLHttpRequest();request.open('POST',__nativeDiskEndpoint,false);request.setRequestHeader('Content-Type','application/json');request.send(JSON.stringify({method,args}));
-    const response=JSON.parse(request.responseText);if(request.status!==200||response.error)throw Error(response.error||`디스크 엔진 HTTP ${request.status}`);return response.result;
+    const response=JSON.parse(request.responseText);if(request.status!==200||response.error)throw Error(response.error||`디스크 엔진 HTTP ${request.status}`);
+    if(nativeProfileEnabled){const stats=nativeRpcStats[method]??={calls:0,milliseconds:0,nativeMilliseconds:0,responseCharacters:0};stats.calls++;stats.milliseconds+=nativeProfileNow()-started;stats.nativeMilliseconds+=response.nativeMilliseconds||0;stats.responseCharacters+=request.responseText.length;}
+    return response.result;
   }
   if(!nativeDiskBridge)throw Error('EXE 디스크 엔진에 연결되지 않았습니다.');
   return nativeDiskBridge[method](...args);
@@ -154,13 +159,30 @@ async function streamNativeCsv(logs,mode,keys,range,status){
   }catch(error){nativeCall('FinishCsvExport',token,false);throw error;}
 }
 async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
+  const analysisStarted=nativeProfileNow();
   const source=[
     'const window=self;const document={};const Chart={register(){}};',
     `const __nativeDiskEndpoint=${JSON.stringify(nativeCall('Endpoint'))};`,
     document.getElementById('battery-core').textContent,
     Array.from(document.querySelectorAll('script')).find(script=>script.textContent.includes('function analyzeParsedLog(')).textContent,
     document.getElementById('native-disk-core').textContent,
-    `self.onmessage=async(event)=>{let store;try{const {metadata,cfg,altSourceMode,timeMode,catalog}=event.data;appState.config=cfg;appState.altSourceMode=altSourceMode;appState.timeMode=timeMode;const parsed=makeNativeParsed(metadata);store=nativeCall('BeginAnalysis',parsed.nativeId);parsed.nativeAnalysisStore=store;self.postMessage({type:'progress',fraction:0,phase:'전체 패킷 분석 중'});const analysis=analyzeParsedLog(parsed,cfg);analysis.timeline._packed?.backend.compact();self.postMessage({type:'progress',fraction:0,phase:'전체 필드·인스턴스 목록 확인'});const fieldCatalog=catalog||JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);const result=await storeNativeAnalysis(store,analysis,(fraction,phase)=>self.postMessage({type:'progress',fraction,phase}));result.catalog=fieldCatalog;nativeCall('CommitAnalysis',parsed.nativeId,store);self.postMessage({type:'done',result});}catch(error){if(store)try{nativeCall('AbortAnalysis',store);}catch{}self.postMessage({type:'error',message:error.message,stack:error.stack});}};`
+    `self.onmessage=async(event)=>{let store;try{
+      const {metadata,cfg,altSourceMode,timeMode,catalog}=event.data;nativeProfileEnabled=!!metadata.profileEnabled;
+      appState.config=cfg;appState.altSourceMode=altSourceMode;appState.timeMode=timeMode;
+      const parsed=makeNativeParsed(metadata),profile={stages:{},analysisPhases:[],rpc:nativeRpcStats};
+      store=nativeCall('BeginAnalysis',parsed.nativeId);parsed.nativeAnalysisStore=store;
+      let phaseStart=nativeProfileNow(),lastRpc=0;
+      if(nativeProfileEnabled)parsed.onAnalysisPhase=name=>{const now=nativeProfileNow(),rpc=Object.values(nativeRpcStats).reduce((sum,item)=>sum+item.milliseconds,0);profile.analysisPhases.push({name,milliseconds:now-phaseStart,rpcMilliseconds:rpc-lastRpc});phaseStart=now;lastRpc=rpc;};
+      self.postMessage({type:'progress',fraction:0,phase:'전체 패킷 분석 중'});
+      let started=nativeProfileNow();const analysis=analyzeParsedLog(parsed,cfg);profile.stages.analysis=nativeProfileNow()-started;
+      started=nativeProfileNow();analysis.timeline._packed?.backend.compact();profile.stages.timelineFlush=nativeProfileNow()-started;
+      self.postMessage({type:'progress',fraction:0,phase:'전체 필드·인스턴스 목록 확인'});
+      started=nativeProfileNow();const fieldCatalog=catalog||JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);profile.stages.fieldCatalog=nativeProfileNow()-started;
+      started=nativeProfileNow();const result=await storeNativeAnalysis(store,analysis,(fraction,phase)=>self.postMessage({type:'progress',fraction,phase}));profile.stages.resultStorage=nativeProfileNow()-started;
+      result.catalog=fieldCatalog;started=nativeProfileNow();nativeCall('CommitAnalysis',parsed.nativeId,store);profile.stages.commit=nativeProfileNow()-started;
+      profile.timelineRows=analysis.timeline.length;profile.fieldCount=fieldCatalog.reduce((sum,item)=>sum+item.fields.length,0);result.profile=profile;
+      self.postMessage({type:'done',result});
+    }catch(error){if(store)try{nativeCall('AbortAnalysis',store);}catch{}self.postMessage({type:'error',message:error.message,stack:error.stack});}};`
   ].join('\n');
   const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'})),worker=new Worker(url);URL.revokeObjectURL(url);
   const result=await new Promise((resolve,reject)=>{
@@ -169,7 +191,9 @@ async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
     worker.onerror=e=>{finish();reject(Error(e.message||'백그라운드 분석 오류'));};
     worker.postMessage({metadata:parsed.nativeMetadata,cfg:{...cfg},altSourceMode:appState.altSourceMode,timeMode:appState.timeMode,catalog:parsed._fieldCatalog});
   });
-  parsed._fieldCatalog=result.catalog;clearNativePages(parsed.nativeId);return restoreNativeAnalysis(parsed.nativeId,result);
+  parsed._fieldCatalog=result.catalog;
+  if(parsed.nativeMetadata.profileEnabled){parsed.loadProfile={fileName:parsed.fileName,bytes:parsed.byteLength,packets:parsed.totalPackets,indexMilliseconds:parsed.nativeMetadata.indexMilliseconds,analysisWallMilliseconds:nativeProfileNow()-analysisStarted,...result.profile};window.chrome.webview.postMessage(JSON.stringify({action:'disk.profile',profile:parsed.loadProfile}));}
+  clearNativePages(parsed.nativeId);return restoreNativeAnalysis(parsed.nativeId,result);
 }
 window.addEventListener('DOMContentLoaded',()=>{
   if(!nativeDiskBridge)return;

@@ -3,7 +3,7 @@
     let plotRefreshTimer=null,plotRevision=0,plotWorker=null,plotGesture=false;
     function setPlotQueryStatus(text){
       const title=document.getElementById?.('chartTitleLabel');if(!title)return;
-      let status=document.getElementById('plotQueryStatus');if(!status){status=document.createElement('span');status.id='plotQueryStatus';status.setAttribute('role','status');status.style.cssText='display:block;font-size:11px;color:#64748b;margin-top:4px';title.after(status);}status.textContent=text;
+      let status=document.getElementById('plotQueryStatus');if(!status){status=document.createElement('span');status.id='plotQueryStatus';status.setAttribute('role','status');status.style.cssText='position:absolute;right:8px;top:4px;max-width:80%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#64748b;pointer-events:none;background:rgba(255,255,255,.92);padding:0 3px';const card=title.closest('.glass-card')||title.parentElement;card.style.position='relative';card.append(status);}status.textContent=text;
     }
     function cancelPlotRefresh() {
       plotRevision++;if(plotRefreshTimer!==null){clearTimeout(plotRefreshTimer);plotRefreshTimer=null;}
@@ -574,6 +574,7 @@
 
     function synchronizePlotAxes(config,fields=[]) {
       const custom=!!config.customAxes,axes={},groups=new Map();
+      const memberships=new Map();
       config.datasets.forEach((dataset,index)=>{
         const original=dataset.yAxisID||'y',axisId=custom?original:customFieldAxisId(index);
         const field=custom?fields.find((field,i)=>customFieldAxisId(i)===original):null;
@@ -584,6 +585,7 @@
           ticks:{...previous?.ticks,color,font:{family:'Arial',size:11}},border:{...previous?.border,color},
           grid:{drawOnChartArea:index===0,color:'#e5e5e5'}};
         dataset.yAxisID=axisId;
+        memberships.set(axisId,group);
         if(!groups.has(group))groups.set(group,{min:Infinity,max:-Infinity,axes:new Set()});
         const shared=groups.get(group);shared.axes.add(axisId);
         if(dataset.statistics){shared.min=Math.min(shared.min,dataset.statistics.min);shared.max=Math.max(shared.max,dataset.statistics.max);}
@@ -592,6 +594,14 @@
       for(const group of groups.values()){
         const bounds=commonPlotBounds(group.min,group.max);if(!bounds)continue;
         for(const axisId of group.axes){axes[axisId].min??=bounds.min;axes[axisId].max??=bounds.max;}
+      }
+      const shownRanges=new Set();
+      for(const [axisId,axis] of Object.entries(axes)){
+        const rangeKey=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
+        if(shownRanges.has(rangeKey)){
+          axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
+          axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;
+        }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;}
       }
       config.customAxes=axes;return config;
     }

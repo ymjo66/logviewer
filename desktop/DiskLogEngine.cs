@@ -17,7 +17,7 @@ namespace LogViewer {
  }
  internal sealed class DiskTable { public string Name,Index;public long Count;public double LastTime=Double.NegativeInfinity;public bool Ordered=true;public BinaryWriter Writer; }
  internal sealed class DiskLog {
-  public string Id,Name,Source,Root,AnalysisId,Catalog;public long Size,Packets;public bool Ready,Text;public FileStream SourceHandle;
+  public string Id,Name,Source,Root,AnalysisId,Catalog;public long Size,Packets;public double IndexMilliseconds;public bool Ready,Text;public FileStream SourceHandle;
   public readonly List<DiskSchema> Schemas=new List<DiskSchema>();
   public readonly Dictionary<string,DiskTable> Tables=new Dictionary<string,DiskTable>();
  }
@@ -48,6 +48,7 @@ namespace LogViewer {
   public void AbortAnalysis(string token){lock(gate){DiskLog store;if(!analysisStores.TryGetValue(token,out store))return;if(Log(store.Source).AnalysisId==token)return;analysisStores.Remove(token);Directory.Delete(store.Root,true);}}
   internal string Import(string id,Action<double,string> progress){lock(gate){
    var log=Log(id);if(log.Ready)return Metadata(log);
+   var timing=System.Diagnostics.Stopwatch.StartNew();
    try{
     var before=new FileInfo(log.Source);long stamp=before.LastWriteTimeUtc.Ticks;
     // Keep only a read handle; deny writes/deletion while this log is attached.
@@ -56,7 +57,7 @@ namespace LogViewer {
     if(log.Text)IndexText(log,progress);else IndexBinary(log,progress);
     var after=new FileInfo(log.Source);if(after.Length!=log.Size||after.LastWriteTimeUtc.Ticks!=stamp)throw new IOException("읽는 동안 원본 파일이 변경되었습니다. 다시 첨부하세요.");
     foreach(var table in log.Tables.Values){if(table.Writer!=null){table.Writer.Dispose();table.Writer=null;}}
-    log.Ready=true;string metadata=Metadata(log);File.WriteAllText(Path.Combine(log.Root,"manifest.json"),metadata,Encoding.UTF8);progress(1,"디스크 인덱스 완료");return metadata;
+    log.IndexMilliseconds=timing.Elapsed.TotalMilliseconds;log.Ready=true;string metadata=Metadata(log);File.WriteAllText(Path.Combine(log.Root,"manifest.json"),metadata,Encoding.UTF8);progress(1,"디스크 인덱스 완료");return metadata;
    }catch{
     foreach(var table in log.Tables.Values)if(table.Writer!=null){table.Writer.Dispose();table.Writer=null;}
     if(log.SourceHandle!=null){log.SourceHandle.Dispose();log.SourceHandle=null;}
@@ -114,7 +115,7 @@ namespace LogViewer {
    var fmt=new {typeId=128,length=89,name="FMT",format="BBnNZ",columns=new[]{"Type","Length","Name","Format","Columns"},count=log.Schemas.Count};
    var definitions=log.Schemas.GroupBy(s=>s.name+"\0"+s.format+"\0"+String.Join(",",s.columns)).Select(g=>g.First()).Select(s=>(object)new {s.typeId,s.length,s.name,s.format,s.columns,s.count}).ToList();
    if(!log.Text){definitions=definitions.Where(item=>{var schema=Json().Deserialize<Dictionary<string,object>>(Json().Serialize(item));return (string)schema["name"]!="FMT"||(string)schema["format"]!="BBnNZ";}).ToList();definitions.Insert(0,fmt);}
-   return Json().Serialize(new {nativeId=log.Id,fileName=log.Name,byteLength=log.Size,totalPackets=log.Packets,fmtList=definitions,rawCounts=log.Tables.ToDictionary(p=>p.Key,p=>p.Value.Count),tables=log.Tables.ToDictionary(p=>p.Key,p=>p.Value.Count),storage="native-disk",isText=log.Text,cacheBytes=new DirectoryInfo(log.Root).GetFiles().Sum(f=>f.Length)});
+   return Json().Serialize(new {nativeId=log.Id,fileName=log.Name,byteLength=log.Size,totalPackets=log.Packets,fmtList=definitions,rawCounts=log.Tables.ToDictionary(p=>p.Key,p=>p.Value.Count),tables=log.Tables.ToDictionary(p=>p.Key,p=>p.Value.Count),storage="native-disk",isText=log.Text,indexMilliseconds=log.IndexMilliseconds,profileEnabled=Program.ProfileOutput!=null,cacheBytes=new DirectoryInfo(log.Root).GetFiles().Sum(f=>f.Length)});
   }
   byte[] Bytes(DiskLog log,long position,int count){
    if(position<0||count<0||position+count>log.Size)throw new IOException("잘못된 원본 구간입니다.");

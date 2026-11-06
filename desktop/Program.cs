@@ -21,11 +21,13 @@ using Microsoft.Web.WebView2.WinForms;
 namespace LogViewer {
  internal static class Program {
   internal static string Cache;
+  internal static string ProfileOutput;
   internal static string VersionText { get { return Assembly.GetExecutingAssembly().GetName().Version.ToString(3); } }
   [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool SetDllDirectory(string path);
   [STAThread] static int Main(string[] args) {
    try {
     ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
+    if(args.Length>1&&args[0]=="--profile-output")ProfileOutput=Path.GetFullPath(args[1]);
     if(args.Length>0 && args[0]=="--apply-update")return Updater.Apply(args);
     if(args.Length>1 && args[0]=="--self-test")return SelfTest(args[1]);
     if(args.Length>1 && args[0]=="--disk-source-test")return DiskLogBridge.TestSourceProtection(args[1]);
@@ -114,8 +116,8 @@ namespace LogViewer {
       string text;using(var reader=new StreamReader(e.Request.Content)){var buffer=new char[4096];var builder=new StringBuilder();int count;while((count=reader.Read(buffer,0,buffer.Length))>0){builder.Append(buffer,0,count);if(builder.Length>5*1024*1024)throw new IOException("요청이 너무 큽니다.");}text=builder.ToString();}
       var request=DiskLogBridge.Json().Deserialize<Dictionary<string,object>>(text);
       var args=((System.Collections.IEnumerable)request["args"]).Cast<object>().ToArray();
-      object result=await Task.Run(()=>diskBridge.Dispatch((string)request["method"],args));
-      byte[] bytes=Encoding.UTF8.GetBytes(DiskLogBridge.Json().Serialize(new {result}));
+      var timing=Stopwatch.StartNew();object result=await Task.Run(()=>diskBridge.Dispatch((string)request["method"],args));double nativeMilliseconds=timing.Elapsed.TotalMilliseconds;
+      byte[] bytes=Encoding.UTF8.GetBytes(DiskLogBridge.Json().Serialize(new {result,nativeMilliseconds}));
       e.Response=environment.CreateWebResourceResponse(new MemoryStream(bytes),200,"OK",cors+"Content-Type: application/json; charset=utf-8");
      }catch(Exception error){Updater.Log("disk-api-error",error.Message);if(!browser.IsDisposed)try{e.Response=environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(DiskLogBridge.Json().Serialize(new {error=error.Message}))),400,"Bad Request","Content-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: https://logviewer.local");}catch(COMException){}catch(InvalidOperationException){}}
      finally{try{deferral.Complete();}catch(COMException){}catch(InvalidOperationException){}}
@@ -129,6 +131,7 @@ namespace LogViewer {
      if(command.StartsWith("{")){
       Dictionary<string,object> request;try{request=DiskLogBridge.Json().Deserialize<Dictionary<string,object>>(command);}catch{return;}
       string action=request.ContainsKey("action")?Convert.ToString(request["action"]):"";
+      if(action=="disk.profile"&&Program.ProfileOutput!=null){File.WriteAllText(Program.ProfileOutput,DiskLogBridge.Json().Serialize(request["profile"]),Encoding.UTF8);return;}
       if(action=="disk.chart.cancel"){diskBridge.CancelPlotQuery();return;}
       if(action=="disk.pick"||action=="disk.drop"){
        try{

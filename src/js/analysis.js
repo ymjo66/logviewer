@@ -94,6 +94,7 @@
         const primary = instanceKey ? Math.min(...new Set(ordered.map(r => r[instanceKey]).filter(Number.isFinite))) : null;
         return [name, instanceKey && Number.isFinite(primary) ? ordered.filter(r => r[instanceKey] === primary) : ordered];
       }));
+      parsed.onAnalysisPhase?.('sensor-selection-and-ordering');
       const gpsRows = (t['GPS'] && t['GPS'].length) ? t['GPS'] : (t['GPS2'] || []);
       const ctunRows = t['CTUN'] || [];
       const posRows = t['POS'] || [];
@@ -234,6 +235,7 @@
       const posRelOffset = calcBaseline(posRows, 'RelHomeAlt', 1.0);
       const gpsAmslOffset = calcBaseline(gpsRows, 'Alt', 1.0);
 
+      parsed.onAnalysisPhase?.('time-and-ground-reference');
       const timeline = parsed.nativeId?createNativeWritableRows(parsed.nativeAnalysisStore||parsed.nativeId,'timeline',{kstStr:secToKstStr,bootStr:secToBootStr}):parsed.storage==='lossless-packed'?createColumnRows({kstStr:secToKstStr,bootStr:secToBootStr}):[];
       for (let i = 0; i < spineRows.length; i++) {
         const sp = spineRows[i];
@@ -326,6 +328,7 @@
         });
       }
 
+      parsed.onAnalysisPhase?.('timeline-construction');
       // Multi-Sortie Detection (1회 이착륙 = 1쏘티, 한 로그 내 다중 이착륙 완벽 분리)
       const rawSorties = [];
 
@@ -617,6 +620,7 @@
       //    Throttle/Current-Correlated EMI Interference (CompassMot principle)
       // ========================================================================
       // First compute raw mag_field norm and 5-point smoothed mag_field to reject 1-sample spike noise
+      parsed.onAnalysisPhase?.('flight-sorties-and-mode');
       const rawMagNorms = timeline.map(pt => Math.hypot(pt.magX, pt.magY, pt.magZ));
       const smoothMagNorms = rawMagNorms.map((val, idx) => {
         if (val <= 10) return 0;
@@ -810,6 +814,7 @@
       const hasEkfYawReset = evRows.some(ev => ev.Id === 62);
       const isAbnormalBaseMag = baseMagField > 0 && (baseMagField < 180 || baseMagField > 850);
 
+      parsed.onAnalysisPhase?.('magnetic-and-telemetry-metrics');
       let firmwareStr = 'ArduPilot Vehicle';
       let hardwareStr = '';
       for (const m of msgRows) {
@@ -1145,6 +1150,7 @@
         });
       }
       unifiedEvents.sort((a, b) => a.sec - b.sec);
+      parsed.onAnalysisPhase?.('diagnostics-and-events');
 
       return {
         isLogCutoff,
