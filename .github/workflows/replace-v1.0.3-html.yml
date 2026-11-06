@@ -1,0 +1,44 @@
+name: Replace v1.0.3 HTML
+on:
+  push:
+    branches: [release/replace-v1.0.3-html]
+    paths: [.github/workflows/replace-v1.0.3-html.yml]
+permissions:
+  contents: write
+jobs:
+  replace-html:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate standalone HTML
+        run: |
+          node tests/standalone.cjs
+          node tests/export-battery.cjs
+          node tests/large-parser.cjs
+          node tests/multi-upload.cjs
+          node tests/comparison.cjs
+          node tests/native-adapter.cjs
+          node tests/chart-interaction.cjs
+      - name: Replace HTML and its checksum in existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/html-hotfix
+          cp index.html artifacts/html-hotfix/LogViewer.html
+          gh release download v1.0.3 --pattern SHA256SUMS.txt --dir artifacts/html-hotfix
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          folder=Path('artifacts/html-hotfix')
+          digest=hashlib.sha256((folder/'LogViewer.html').read_bytes()).hexdigest()
+          checksums=folder/'SHA256SUMS.txt'
+          text=checksums.read_text()
+          text,count=re.subn(r'(?m)^[0-9a-fA-F]{64}([ \t]+\*?LogViewer\.html)\r?$',lambda m:digest+m.group(1),text)
+          if count!=1: raise SystemExit('Expected exactly one HTML checksum')
+          checksums.write_text(text)
+          PY
+          gh release upload v1.0.3 artifacts/html-hotfix/LogViewer.html artifacts/html-hotfix/SHA256SUMS.txt --clobber
+          gh release download v1.0.3 --pattern LogViewer.html --dir artifacts/html-hotfix/verify
+          cmp artifacts/html-hotfix/LogViewer.html artifacts/html-hotfix/verify/LogViewer.html
