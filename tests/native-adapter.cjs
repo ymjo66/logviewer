@@ -3,6 +3,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const html=fs.readFileSync('index.html','utf8'),scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
 const collections=new Map(),summaries=new Map();let raw,encode,csvText='';
 const bridge={
+ Endpoint(){return 'https://engine.logviewer.local/test';},
  ReadPage(id,name,start,count){return JSON.stringify(raw.tables[name].slice(start,start+count),encode);},
  BeginCollection(id,name){collections.set(id+':'+name,[]);},
  WriteCollectionPage(id,name,page,json){collections.get(id+':'+name)[page]=json;},
@@ -33,5 +34,19 @@ const plain=v=>JSON.parse(JSON.stringify(v));
  for(let i=4999;i>=0;i--)rows[i].twice=i*2;rows._packed.backend.flush();
  for(let i=0;i<5000;i++){assert.equal(rows[i].twice,i*2);if(i===1999)assert.ok(Number.isNaN(rows[i].value));else assert.equal(rows[i].value,i);}
  assert.ok(vm.runInContext('nativePageBytes<=NATIVE_CACHE_LIMIT',context));
+ // Execute the exact generated chart Worker source against the disk adapter.
+ let workerSource='',preparedPlot;const chartWorkers=[];
+ context.URL={createObjectURL(blob){workerSource=blob.parts.join('\n');return 'blob:test';},revokeObjectURL(){}};
+ context.Blob=class {constructor(parts){this.parts=parts;}};
+ context.document={querySelectorAll(){return scripts.map(textContent=>({textContent}));},getElementById(id){if(id==='battery-core')return {textContent:scripts.find(s=>s.includes('function detectBatteryCells'))};if(id==='native-disk-core')return {textContent:fs.readFileSync('src/js/native-disk.js','utf8')};if(id==='mainTelemetryChart')return {setAttribute(){}};return null;}};
+ context.Worker=class {
+  constructor(){chartWorkers.push(this);const owner=this,self={addEventListener(){},postMessage(data){owner.onmessage({data:structuredClone(data)});}};const workerContext=vm.createContext({self,console,TextDecoder,Uint8Array,DataView,ArrayBuffer,Blob,atob,btoa,setTimeout,clearTimeout,setInterval,clearInterval,XMLHttpRequest:class {open(){}setRequestHeader(){}send(text){const {method,args}=JSON.parse(text);this.status=200;this.responseText=JSON.stringify({result:bridge[method](...args)});}}});vm.runInContext(workerSource,workerContext);this.self=self;}
+  postMessage(data){this.self.onmessage({data});}terminate(){}
+ };
+ context.capturePlot=plot=>{preparedPlot=plot;};vm.runInContext('appState.parsedLog=makeNativeParsed({...meta,isText:true});appState.analysis=restoreNativeAnalysis(meta.nativeId,stored);appState.customFields=["CTUN.Alt"];appState.zoomWindow={minSec:10,maxSec:25};renderTelemetryCharts=(plot)=>capturePlot(plot);startNativePlotRefresh(plotRevision);',context);
+ assert.ok(preparedPlot&&!preparedPlot.error,'generated worker returns chart configuration');assert.ok(preparedPlot.config.datasets[0].statistics);assert.ok(preparedPlot.config.datasets[0].data.every(point=>point.x>=10&&point.x<=25));assert.ok(preparedPlot.overview.length);assert.equal(preparedPlot.config.datasets[0].borderColor,preparedPlot.config.customAxes.y.ticks.color);
+ const outdated=preparedPlot;preparedPlot=null;context.window.chrome.webview.postMessage=()=>{};vm.runInContext('cancelPlotRefresh()',context);chartWorkers.at(-1).onmessage({data:outdated});assert.equal(preparedPlot,null,'outdated completion must never overwrite a newer view');
+ vm.runInContext('appState.overviewCache={analysis:appState.analysis,key:JSON.stringify([appState.customFields,appState.activePreset,appState.altSourceMode]),datasets:[]};startNativePlotRefresh(plotRevision);',context);assert.equal(preparedPlot.overview,null,'range changes reuse full-range overview instead of re-querying it');
+ console.log('PASS: actual generated chart Worker, paged range/statistics, overview and colored axes');
  console.log('PASS: disk-backed timeline every analysis output matches five fixtures; random updates, cache eviction, metadata and time formatters preserved');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -34,6 +34,41 @@ function nativeFieldPlot(parsed,message,field,instanceKey,instance,fullRange){
   const query=JSON.stringify({message,field,instanceKey,instance:instance??null,min:nativeDouble(zoom?.minSec??appState.analysis.minSec),max:nativeDouble(zoom?.maxSec??appState.analysis.maxSec),filterMin:nativeDouble(zoom?.minSec),filterMax:nativeDouble(zoom?.maxSec)});
   return nativeCachedPage(`${parsed.nativeId}:query:${query}`,()=>nativeCall('QueryField',parsed.nativeId,query));
 }
+function startNativePlotRefresh(revision){
+  const parsed=appState.parsedLog,analysis=appState.analysis;
+  setPlotQueryStatus('원본 구간 조회 중…');
+  if(mainChart&&mainChart._plotAnalysis!==analysis){mainChart.data.datasets=[];mainChart.update('none');renderPlotLegend([]);}
+  const key=JSON.stringify([appState.customFields,appState.activePreset,appState.altSourceMode]);
+  const needOverview=appState.overviewCache?.analysis!==analysis||appState.overviewCache?.key!==key;
+  const core=Array.from(document.querySelectorAll('script')).find(script=>script.textContent.includes('function analyzeParsedLog(')).textContent;
+  const source=[
+    'const window=self;const document={};const Chart={register(){}};',
+    `const __nativeDiskEndpoint=${JSON.stringify(nativeCall('Endpoint'))};`,
+    document.getElementById('battery-core').textContent,core,document.getElementById('native-disk-core').textContent,
+    `self.onmessage=event=>{try{
+      const input=event.data;Object.assign(appState,input.state);
+      appState.parsedLog=makeNativeParsed(input.metadata);appState.parsedLog._fieldCatalog=input.catalog;
+      appState.analysis=restoreNativeAnalysis(input.metadata.nativeId,JSON.parse(nativeCall('GetAnalysis',input.metadata.nativeId),nativeDecode));
+      const build=full=>{const config=appState.customFields.length?buildCustomFieldConfig(appState.customFields,full):buildPresetConfig(appState.activePreset,full?appState.analysis.timeline:getFilteredTimeline());normalizePlotDatasets(config.datasets,full?null:appState.zoomWindow);styleUavDatasets(config.datasets,!!config.customAxes);synchronizePlotAxes(config,appState.customFields);return config;};
+      const config=build(false);let overview=null;
+      if(input.needOverview)overview=build(true).datasets.map(ds=>{const lo=ds.statistics?.min??0,span=(ds.statistics?.max??1)-lo||1;return {...ds,data:ds.data.map(point=>({x:point.x,y:point.y===null?null:(point.y-lo)/span})),yAxisID:'y',fill:false,borderWidth:1};});
+      const a=appState.analysis,overlay={timeline:[{}],sorties:Array.from(a.sorties,row=>({...row})),chartErrorMarkers:Array.from(a.chartErrorMarkers,row=>({...row})),modeSegments:Array.from(a.modeSegments,row=>({...row})),cursorSec:a.timeline[input.scrubberIndex]?.sec};
+      for(const key of ['armSec','disarmSec','takeoffSec','landingSec','takeoffKst','takeoffBoot','landingKst','landingBoot','disarmKst','disarmBoot','groundOnly','isLogCutoff'])overlay[key]=a[key];
+      self.postMessage({config,overview,overlay});
+    }catch(error){self.postMessage({error:error.message});}};`
+  ].join('\n');
+  const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'})),worker=new Worker(url);URL.revokeObjectURL(url);plotWorker=worker;
+  const canvas=document.getElementById('mainTelemetryChart');canvas?.setAttribute('aria-busy','true');
+  worker.onmessage=event=>{
+    worker.terminate();if(plotWorker===worker)plotWorker=null;
+    if(revision!==plotRevision||appState.analysis!==analysis||appState.parsedLog!==parsed)return;
+    canvas?.setAttribute('aria-busy','false');
+    if(event.data.error){setPlotQueryStatus('조회 실패 · 이전 그래프를 유지합니다.');showToast('차트 조회 실패: '+event.data.error);return;}
+    renderTelemetryCharts(event.data,revision);
+  };
+  worker.onerror=event=>{worker.terminate();if(plotWorker===worker)plotWorker=null;if(revision===plotRevision){canvas?.setAttribute('aria-busy','false');showToast('차트 조회 실패: '+event.message);}};
+  worker.postMessage({metadata:parsed.nativeMetadata,catalog:parsed._fieldCatalog,needOverview,scrubberIndex:appState.scrubberIndex,state:{customFields:[...appState.customFields],activePreset:appState.activePreset,zoomWindow:appState.zoomWindow,altSourceMode:appState.altSourceMode,customAxisLimits:appState.customAxisLimits,axisLimits:appState.axisLimits,config:appState.config,timeMode:appState.timeMode}});
+}
 function nativeRawRows(id,name,length){
   const read=i=>{const start=Math.floor(i/NATIVE_PAGE_ROWS)*NATIVE_PAGE_ROWS;return nativeCachedPage(`${id}:raw:${name}:${start}`,()=>nativeCall('ReadPage',id,name,start,NATIVE_PAGE_ROWS))[i-start];};
   return packedRows({length,keys(i){return Object.keys(read(i)||{});},get(i,key){return typeof key==='string'?read(i)?.[key]:undefined;},set(){throw Error('원본 로그는 읽기 전용입니다.');}});

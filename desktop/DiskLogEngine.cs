@@ -24,6 +24,8 @@ namespace LogViewer {
  [ComVisible(true),ClassInterface(ClassInterfaceType.AutoDual)]
  public sealed class DiskLogBridge:IDisposable {
   readonly string root,endpoint; readonly object gate=new object();readonly IWin32Window owner;
+  int plotGeneration;
+  public void CancelPlotQuery(){System.Threading.Interlocked.Increment(ref plotGeneration);}
   sealed class CsvExport {public string Target,Temporary;public StreamWriter Writer;}
   readonly Dictionary<string,CsvExport> exports=new Dictionary<string,CsvExport>();
   readonly Dictionary<string,DiskLog> logs=new Dictionary<string,DiskLog>();
@@ -166,7 +168,7 @@ namespace LogViewer {
   }}
   static double QueryDouble(Dictionary<string,object> query,string key,double fallback){object value;if(!query.TryGetValue(key,out value)||value==null)return fallback;var bits=value as Dictionary<string,object>;return bits!=null?BitConverter.ToDouble(Convert.FromBase64String((string)bits["$float64"]),0):Convert.ToDouble(value,CultureInfo.InvariantCulture);}
   static long TimeBound(BinaryReader index,long count,double sec,bool upper){long left=0,right=count;while(left<right){long middle=left+(right-left)/2;index.BaseStream.Position=middle*24+16;double time=index.ReadDouble()/1e6;if(time<sec||upper&&time==sec)left=middle+1;else right=middle;}return left;}
-  public string QueryField(string id,string json){lock(gate){
+  public string QueryField(string id,string json){int generation=System.Threading.Volatile.Read(ref plotGeneration);lock(gate){
    var log=Log(id);if(log.Text)throw new IOException("바이너리 전용 조회입니다.");var query=Json().Deserialize<Dictionary<string,object>>(json);
    string name=(string)query["message"],field=(string)query["field"],instanceKey=query.ContainsKey("instanceKey")?query["instanceKey"] as string:null,selected=query.ContainsKey("instance")?query["instance"] as string:null;
    DiskTable table;if(!log.Tables.TryGetValue(name,out table))return "[]";
@@ -177,6 +179,7 @@ namespace LogViewer {
    using(var index=new BinaryReader(new FileStream(table.Index,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.SequentialScan))){
     long first=table.Ordered&&Finite(filterMin)?TimeBound(index,table.Count,filterMin,false):0,last=table.Ordered&&Finite(filterMax)?TimeBound(index,table.Count,filterMax,true):table.Count;index.BaseStream.Position=first*24;
     for(long i=first;i<last;i++){
+     if((i&1023)==0&&generation!=System.Threading.Volatile.Read(ref plotGeneration))throw new OperationCanceledException("이전 차트 조회를 취소했습니다.");
      long position=index.ReadInt64();int schema=index.ReadInt32(),length=index.ReadInt32();double time=index.ReadDouble(),x=time/1e6;if(Double.IsNaN(x)||Double.IsInfinity(x)||x<filterMin||x>filterMax)continue;
      var plan=plans[schema];byte[] bytes=Bytes(log,position,length);
      double instance=Numeric(bytes,plan[2],(char)plan[5]);string group=instanceKey==null?"":Double.IsNaN(instance)?"undefined":instance.ToString("R",CultureInfo.InvariantCulture);
@@ -273,7 +276,7 @@ namespace LogViewer {
   public void FinishCsvExport(string token,bool success){lock(gate){CsvExport output;if(!exports.TryGetValue(token,out output))return;exports.Remove(token);output.Writer.Dispose();try{if(success){if(File.Exists(output.Target))File.Replace(output.Temporary,output.Target,null);else File.Move(output.Temporary,output.Target);}}finally{if(File.Exists(output.Temporary))File.Delete(output.Temporary);}}}
   internal object Dispatch(string method,object[] args){
    Func<int,string> s=i=>Convert.ToString(args[i],CultureInfo.InvariantCulture);Func<int,int> n=i=>Convert.ToInt32(args[i],CultureInfo.InvariantCulture);
-   switch(method){case "GetFieldCatalog":return GetFieldCatalog(s(0));case "BeginAnalysis":return BeginAnalysis(s(0));case "CommitAnalysis":CommitAnalysis(s(0),s(1));return null;case "AbortAnalysis":AbortAnalysis(s(0));return null;case "ReadPage":return ReadPage(s(0),s(1),n(2),n(3));case "BeginCollection":BeginCollection(s(0),s(1));return null;case "AppendCollection":AppendCollection(s(0),s(1),s(2));return null;case "WriteCollectionPage":WriteCollectionPage(s(0),s(1),n(2),s(3));return null;case "ReadCollection":return ReadCollection(s(0),s(1),n(2));case "StoreAnalysis":StoreAnalysis(s(0),s(1));return null;case "GetAnalysis":return GetAnalysis(s(0));default:throw new IOException("허용되지 않은 요청입니다.");}
+   switch(method){case "QueryField":return QueryField(s(0),s(1));case "GetFieldCatalog":return GetFieldCatalog(s(0));case "BeginAnalysis":return BeginAnalysis(s(0));case "CommitAnalysis":CommitAnalysis(s(0),s(1));return null;case "AbortAnalysis":AbortAnalysis(s(0));return null;case "ReadPage":return ReadPage(s(0),s(1),n(2),n(3));case "BeginCollection":BeginCollection(s(0),s(1));return null;case "AppendCollection":AppendCollection(s(0),s(1),s(2));return null;case "WriteCollectionPage":WriteCollectionPage(s(0),s(1),n(2),s(3));return null;case "ReadCollection":return ReadCollection(s(0),s(1),n(2));case "StoreAnalysis":StoreAnalysis(s(0),s(1));return null;case "GetAnalysis":return GetAnalysis(s(0));default:throw new IOException("허용되지 않은 요청입니다.");}
   }
   void CloseMap(){if(view!=null){view.Dispose();view=null;}if(mapped!=null){mapped.Dispose();mapped=null;}mappedId=null;}
   public void Dispose(){lock(gate){CloseMap();foreach(string token in exports.Keys.ToArray())FinishCsvExport(token,false);foreach(var log in logs.Values){foreach(var table in log.Tables.Values)if(table.Writer!=null)table.Writer.Dispose();if(log.SourceHandle!=null)log.SourceHandle.Dispose();}logs.Clear();analysisStores.Clear();if(Directory.Exists(root))Directory.Delete(root,true);}}

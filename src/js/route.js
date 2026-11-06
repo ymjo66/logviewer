@@ -232,18 +232,19 @@
       ctx.fill();
     }
 
+    function nearestTimelineIndex(rows,targetSec){
+      if(!rows.length||!Number.isFinite(targetSec))return 0;
+      let lo=0,hi=rows.length;
+      while(lo<hi){const mid=Math.floor((lo+hi)/2);if(rows[mid].sec<targetSec)lo=mid+1;else hi=mid;}
+      if(lo===0)return 0;
+      const best=lo===rows.length?rows.length-1:targetSec-rows[lo-1].sec<=rows[lo].sec-targetSec?lo-1:lo;
+      const time=rows[best].sec;if(best===0||rows[best-1].sec!==time)return best;
+      lo=0;hi=best;while(lo<hi){const mid=Math.floor((lo+hi)/2);if(rows[mid].sec<time)lo=mid+1;else hi=mid;}return lo;
+    }
     function syncScrubberToSec(targetSec, updateSlider = true) {
       const a = appState.analysis;
       if (!a || !a.timeline.length) return;
-      let bestIdx = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < a.timeline.length; i++) {
-        const d = Math.abs(a.timeline[i].sec - targetSec);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
-      }
+      const bestIdx=nearestTimelineIndex(a.timeline,targetSec);
       appState.scrubberIndex = bestIdx;
       const sample = a.timeline[bestIdx];
       if (!sample) return;
@@ -306,7 +307,7 @@
 
       renderGpsMap();
       renderAttitudeHud(sample);
-      if (mainChart) mainChart.draw();
+      if (mainChart){if(mainChart._overlayAnalysis)mainChart._overlayAnalysis.cursorSec=sample.sec;mainChart.draw();}
       if (overviewChart) overviewChart.draw();
     }
 

@@ -129,6 +129,7 @@ namespace LogViewer {
      if(command.StartsWith("{")){
       Dictionary<string,object> request;try{request=DiskLogBridge.Json().Deserialize<Dictionary<string,object>>(command);}catch{return;}
       string action=request.ContainsKey("action")?Convert.ToString(request["action"]):"";
+      if(action=="disk.chart.cancel"){diskBridge.CancelPlotQuery();return;}
       if(action=="disk.pick"||action=="disk.drop"){
        try{
         string[] paths;

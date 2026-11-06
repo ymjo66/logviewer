@@ -173,7 +173,7 @@ const pointerHandlers={},frames=new Map();let nextFrame=0;
 context.requestAnimationFrame=callback=>{frames.set(++nextFrame,callback);return nextFrame;};
 context.cancelAnimationFrame=id=>frames.delete(id);
 const canvas={style:{},addEventListener(name,handler){pointerHandlers[name]=handler;},getBoundingClientRect(){return {left:0,width:1000};},setPointerCapture(){}};
-vm.runInContext('appState.analysis={minSec:0,maxSec:120}; appState.zoomWindow={minSec:20,maxSec:60}; var panResults=[]; applyZoomRange=(min,max)=>panResults.push([min,max]);',context);
+vm.runInContext('appState.analysis={minSec:0,maxSec:120}; appState.zoomWindow={minSec:20,maxSec:60}; var panResults=[]; applyZoomRange=(min,max)=>panResults.push([min,max]); finishPlotGesture=()=>{plotGesture=false;};',context);
 context.bindInteractiveChartZoom(canvas,()=>({width:1000,chartArea:{left:0,right:1000},scales:{x:{min:20,max:60}}}));
 pointerHandlers.pointerdown({button:2,clientX:500,pointerId:1,preventDefault(){}});
 pointerHandlers.pointermove({buttons:2,clientX:600,preventDefault(){}});

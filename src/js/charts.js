@@ -1,11 +1,33 @@
     let mainChart = null;
     let overviewChart = null;
+    let plotRefreshTimer=null,plotRevision=0,plotWorker=null,plotGesture=false;
+    function setPlotQueryStatus(text){
+      const title=document.getElementById?.('chartTitleLabel');if(!title)return;
+      let status=document.getElementById('plotQueryStatus');if(!status){status=document.createElement('span');status.id='plotQueryStatus';status.setAttribute('role','status');status.style.cssText='display:block;font-size:11px;color:#64748b;margin-top:4px';title.after(status);}status.textContent=text;
+    }
+    function cancelPlotRefresh() {
+      plotRevision++;if(plotRefreshTimer!==null){clearTimeout(plotRefreshTimer);plotRefreshTimer=null;}
+      if(plotWorker){plotWorker.terminate();plotWorker=null;}
+      if(appState.parsedLog?.nativeId)window.chrome?.webview?.postMessage(JSON.stringify({action:'disk.chart.cancel'}));
+    }
+    function previewPlotRange() {
+      if(!mainChart||!appState.analysis)return;
+      const range=appState.zoomWindow||{minSec:appState.analysis.minSec,maxSec:appState.analysis.maxSec};
+      mainChart.options.scales.x.min=range.minSec;mainChart.options.scales.x.max=range.maxSec;
+      setPlotQueryStatus('미리보기 · 조작이 끝나면 원본 구간을 갱신합니다.');
+      mainChart.update('none');overviewChart?.draw();
+    }
+    function finishPlotGesture(){if(!plotGesture)return;plotGesture=false;requestPlotRefresh(0);}
+    function requestPlotRefresh(delay=160){
+      cancelPlotRefresh();const revision=plotRevision;previewPlotRange();if(plotGesture)return;
+      plotRefreshTimer=setTimeout(()=>{plotRefreshTimer=null;renderTelemetryCharts(undefined,revision);},delay);
+    }
 
     const flightMilestonePlugin = {
       id: 'flightMilestones',
       afterDraw(chart) {
         if(chart.canvas.id!=='mainTelemetryChart')return;
-        const a = appState.analysis;
+        const a = chart._overlayAnalysis || appState.analysis;
         if (!a || !a.timeline.length) return;
         const { ctx, chartArea, scales } = chart;
         const xScale = scales.x;
@@ -75,7 +97,7 @@
           });
         }
 
-        const curSample = a.timeline[appState.scrubberIndex];
+        const curSample = chart._overlayAnalysis?{sec:a.cursorSec}:a.timeline[appState.scrubberIndex];
         if (curSample) {
           markers.push({ sec: curSample.sec, label: '', color: '#e11d48', dash: [2, 2], isCursor: true, row: 0 });
         }
@@ -202,7 +224,7 @@
         appState.zoomWindow = { minSec: clampedMin, maxSec: clampedMax };
       }
       updateZoomRangeUI();
-      renderTelemetryCharts();
+      requestPlotRefresh();
     }
 
     function zoomChartByFactor(factor, centerSec = null) {
@@ -271,6 +293,7 @@
         if (panFrame !== null) { cancelAnimationFrame(panFrame); applyPan(); }
         pan = null;
         canvasEl.style.cursor = '';
+        finishPlotGesture();
       }
       canvasEl.addEventListener('contextmenu', e => e.preventDefault());
       canvasEl.addEventListener('pointerdown', e => {
@@ -282,6 +305,7 @@
         const x = (e.clientX - rect.left) * chart.width / rect.width;
         if (x < chart.chartArea.left || x > chart.chartArea.right) return;
         e.preventDefault();
+        cancelPlotRefresh();plotGesture=true;
         pan = { analysis, clientX:e.clientX,
           min:appState.zoomWindow?.minSec ?? analysis.minSec,
           max:appState.zoomWindow?.maxSec ?? analysis.maxSec,
@@ -308,6 +332,7 @@
         const rect = canvasEl.getBoundingClientRect();
         const x = e.clientX - rect.left;
         if (x < chart.chartArea.left || x > chart.chartArea.right) return;
+        cancelPlotRefresh();plotGesture=true;
         chart._dragZoomState = { active: true, startX: x, curX: x };
       });
 
@@ -324,6 +349,7 @@
         if (!chart || !chart._dragZoomState || !chart._dragZoomState.active) return;
         const drag = chart._dragZoomState;
         drag.active = false;
+        plotGesture=false;
         const x0 = Math.max(chart.chartArea.left, Math.min(chart.chartArea.right, Math.min(drag.startX, drag.curX)));
         const x1 = Math.max(chart.chartArea.left, Math.min(chart.chartArea.right, Math.max(drag.startX, drag.curX)));
         if (x1 - x0 >= 12 && chart.scales && chart.scales.x) {
@@ -364,6 +390,10 @@
       const a = appState.analysis;
       if (!a) return [];
       if (!appState.zoomWindow) return a.timeline;
+      if(a.timeline._packed){
+        const bound=(value,upper)=>{let lo=0,hi=a.timeline.length;while(lo<hi){const mid=Math.floor((lo+hi)/2),sec=a.timeline[mid].sec;if(sec<value||upper&&sec===value)lo=mid+1;else hi=mid;}return lo;};
+        return a.timeline.slice(bound(appState.zoomWindow.minSec,false),bound(appState.zoomWindow.maxSec,true));
+      }
       return a.timeline.filter(pt => pt.sec >= appState.zoomWindow.minSec && pt.sec <= appState.zoomWindow.maxSec);
     }
 
@@ -618,13 +648,18 @@
         };
     }
 
-    function renderTelemetryCharts() {
+    function renderTelemetryCharts(prepared,expectedRevision) {
       const a = appState.analysis;
       if (!a) return;
-      const pts = getFilteredTimeline();
+      if(!prepared&&appState.parsedLog?.nativeId&&typeof startNativePlotRefresh==='function'){
+        if(expectedRevision===undefined){cancelPlotRefresh();expectedRevision=plotRevision;}
+        startNativePlotRefresh(expectedRevision);return;
+      }
+      if(expectedRevision!==undefined&&expectedRevision!==plotRevision)return;
+      const pts = prepared?null:getFilteredTimeline();
 
-      let cfg;
-      if (appState.customFields.length > 0) {
+      let cfg=prepared?.config;
+      if(cfg){}else if (appState.customFields.length > 0) {
         cfg = buildCustomFieldConfig(appState.customFields);
       } else {
         cfg = buildPresetConfig(appState.activePreset, pts);
@@ -633,9 +668,7 @@
       document.getElementById('chartTitleLabel').textContent = cfg.title;
       renderCustomAxisControls(appState.customFields);
 
-      normalizePlotDatasets(cfg.datasets);
-      styleUavDatasets(cfg.datasets,!!cfg.customAxes);
-      synchronizePlotAxes(cfg,appState.customFields);
+      if(!prepared){normalizePlotDatasets(cfg.datasets);styleUavDatasets(cfg.datasets,!!cfg.customAxes);synchronizePlotAxes(cfg,appState.customFields);}
       renderPlotLegend(cfg.datasets);
       const commonXScale = {
         type: 'linear',
@@ -663,6 +696,7 @@
           animation: false,
           interaction: { mode: 'nearest', axis: 'x', intersect: false },
           onHover(event, elements, chart) {
+            if(plotGesture||plotWorker||plotRefreshTimer!==null)return;
             if (!event.native) return;
             const rect = chart.canvas.getBoundingClientRect();
             const xPx = event.native.clientX - rect.left;
@@ -713,6 +747,8 @@
 
       updateZoomRangeUI();
       bindInteractiveChartZoom(document.getElementById('mainTelemetryChart'), () => mainChart);
+      if(prepared){mainChart._overlayAnalysis=prepared.overlay;if(prepared.overview)appState.overviewCache={analysis:a,key:JSON.stringify([appState.customFields,appState.activePreset,appState.altSourceMode]),datasets:prepared.overview};}
+      mainChart._plotAnalysis=a;setPlotQueryStatus('');
       renderTimelineOverview(cfg);
     }
 
@@ -773,7 +809,7 @@
     Chart.register({id:'flightModeSections',beforeDraw(chart){
       if(!['mainTelemetryChart','timelineOverviewChart'].includes(chart.canvas.id)||!chart.chartArea||!appState.analysis)return;
       const {ctx,chartArea:area,scales}=chart;
-      const modes=visibleModeSegments(appState.analysis.modeSegments||[],scales.x.min,scales.x.max);
+      const modes=visibleModeSegments((chart._overlayAnalysis||appState.analysis).modeSegments||[],scales.x.min,scales.x.max);
       ctx.save();ctx.beginPath();ctx.rect(area.left,area.top,area.width,area.height);ctx.clip();
       for(const mode of modes){
         const left=scales.x.getPixelForValue(mode.startSec),right=scales.x.getPixelForValue(mode.endSec);
@@ -782,7 +818,7 @@
       ctx.restore();
     },beforeDatasetsDraw(chart){
       if(!['mainTelemetryChart','timelineOverviewChart'].includes(chart.canvas.id)||!chart.chartArea||!appState.analysis)return;
-      const {ctx,chartArea:area,scales}=chart;const modes=appState.analysis.modeSegments||[];
+      const {ctx,chartArea:area,scales}=chart;const modes=(chart._overlayAnalysis||appState.analysis).modeSegments||[];
       ctx.save();ctx.beginPath();ctx.rect(area.left,area.top,area.width,area.height);ctx.clip();
       ctx.lineWidth=1;ctx.strokeStyle='#8b919a';ctx.setLineDash([5,4]);
       for(const mode of modes){
@@ -793,7 +829,7 @@
     },afterDraw(chart){
       if(chart.canvas.id!=='mainTelemetryChart'||!chart.chartArea||!appState.analysis)return;
       const {ctx,chartArea:area,scales}=chart;
-      const modes=visibleModeSegments(appState.analysis.modeSegments||[],scales.x.min,scales.x.max);
+      const modes=visibleModeSegments((chart._overlayAnalysis||appState.analysis).modeSegments||[],scales.x.min,scales.x.max);
       ctx.save();ctx.font='bold 12px Arial';ctx.textBaseline='middle';ctx.textAlign='center';
       for(const mode of modes){
         const left=scales.x.getPixelForValue(mode.startSec),right=scales.x.getPixelForValue(mode.endSec),width=right-left;
@@ -827,6 +863,7 @@
       canvas.addEventListener('pointerdown',event=>{
         if(event.button!==0||!overviewChart?.scales.x||!appState.analysis)return;
         const a=appState.analysis,scale=overviewChart.scales.x,rect=canvas.getBoundingClientRect();
+        cancelPlotRefresh();plotGesture=true;
         const pixel=(event.clientX-rect.left)*overviewChart.width/rect.width;
         const range=appState.zoomWindow||{minSec:a.minSec,maxSec:a.maxSec};
         const left=scale.getPixelForValue(range.minSec),right=scale.getPixelForValue(range.maxSec);
@@ -840,7 +877,7 @@
         pending=getOverviewRange(drag.mode,drag.min,drag.max,drag.sec,sec,drag.analysis.minSec,drag.analysis.maxSec);
         if(frame===null)frame=requestAnimationFrame(apply);
       });
-      const end=()=>{if(frame!==null){cancelAnimationFrame(frame);apply();}drag=null;};
+      const end=()=>{if(frame!==null){cancelAnimationFrame(frame);apply();}drag=null;finishPlotGesture();};
       for(const event of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(event,end);
       canvas.addEventListener('dblclick',()=>{appState.zoomWindow=null;renderTelemetryCharts();});
     }

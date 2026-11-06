@@ -79,6 +79,7 @@
 
         row.querySelector('[data-remove-log]').addEventListener('click', (e) => {
           e.stopPropagation();
+          cancelPlotRefresh();
           if(idx===appState.activeLogIndex){mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;}
           appState.logs[idx].parsedLog.releaseRawBytes?.();
           appState.logs[idx].parsedLog.dispose?.();
@@ -121,6 +122,7 @@
     }
 
     async function activateLogByIndex(idx) {
+      cancelPlotRefresh();
       if (idx < 0 || idx >= appState.logs.length) return;
       stopPlayback();
       const item=appState.logs[idx];
@@ -821,6 +823,7 @@
     }
 
     async function reanalyzeAllLogs(){
+      cancelPlotRefresh();
       for(const item of appState.logs){
         await item.parsedLog.ensureLoaded?.();
         try{item.analysis=item.parsedLog.nativeId?await analyzeNativeLog(item.parsedLog,appState.config):analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact?.();}
@@ -967,6 +970,7 @@
       document.getElementById('btnSampleGps').addEventListener('click', () => handleTopViewSwitch('gps'));
 
       document.getElementById('btnClearAllLogs').addEventListener('click', () => {
+        cancelPlotRefresh();
         stopPlayback();
         mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
         for(const item of appState.logs){item.parsedLog.releaseRawBytes?.();item.parsedLog.dispose?.();}
