@@ -79,9 +79,8 @@
       // Nearest-sample lookup requires ordered timestamps. Keep one sensor instance
       // for derived telemetry; raw field plots retain every instance separately.
       parsed.beginSensorScan?.();
-      const overviewOnly=!!cfg.__overviewOnly;
       const analysisMessages=new Set(['GPS','GPS2','CTUN','POS','BARO','BAR2','AHR2','ATT','VIBE','BAT','CURR','BCL','BCL2','RCOU','RCIN','MAG','MAG2','POWR','XKF1','NKF1','EV','ERR','MSG','MODE','PARM']);
-      const t = Object.fromEntries(Object.entries(parsed.tables).filter(([name])=>analysisMessages.has(name)&&(!overviewOnly||['GPS','GPS2','CTUN','POS','BARO','BAR2','AHR2','ATT','RCOU','EV','MSG'].includes(name))).map(([name, rows]) => {
+      const t = Object.fromEntries(Object.entries(parsed.tables).filter(([name])=>analysisMessages.has(name)).map(([name, rows]) => {
         if(rows._packed){
           let primary=Infinity,last=-Infinity,ordered=true;
           const key=typeof messageInstanceField==='function'?messageInstanceField(parsed,name):null;
@@ -250,13 +249,13 @@
         const baro = baroRows.length ? findNearestByTimeUS(baroRows, tUs) : {};
         const ahr = ahr2Rows.length ? findNearestByTimeUS(ahr2Rows, tUs) : {};
         const g = gpsRows.length ? findNearestByTimeUS(gpsRows, tUs) : {};
-        const a = !overviewOnly && attRows.length ? findNearestByTimeUS(attRows, tUs) : {};
-        const v = !overviewOnly && vibeRows.length ? findNearestByTimeUS(vibeRows, tUs) : {};
-        const b = !overviewOnly && batRows.length ? findNearestByTimeUS(batRows, tUs) : {};
+        const a = attRows.length ? findNearestByTimeUS(attRows, tUs) : {};
+        const v = vibeRows.length ? findNearestByTimeUS(vibeRows, tUs) : {};
+        const b = batRows.length ? findNearestByTimeUS(batRows, tUs) : {};
         const r = rcouRows.length ? findNearestByTimeUS(rcouRows, tUs) : {};
-        const m = !overviewOnly && magRows.length ? findNearestByTimeUS(magRows, tUs) : {};
-        const p = !overviewOnly && powrRows.length ? findNearestByTimeUS(powrRows, tUs) : {};
-        const x = !overviewOnly && xkfRows.length ? findNearestByTimeUS(xkfRows, tUs) : {};
+        const m = magRows.length ? findNearestByTimeUS(magRows, tUs) : {};
+        const p = powrRows.length ? findNearestByTimeUS(powrRows, tUs) : {};
+        const x = xkfRows.length ? findNearestByTimeUS(xkfRows, tUs) : {};
 
         const rawCtunAlt = (c.Alt !== undefined) ? (c.Alt * ctunScale) : ((pos.RelHomeAlt !== undefined) ? pos.RelHomeAlt : null);
         const relCtunAlt = (c.Alt !== undefined) ? (c.Alt * ctunScale - ctunAltOffset) : ((pos.RelHomeAlt !== undefined) ? (pos.RelHomeAlt - posRelOffset) : null);
@@ -287,7 +286,6 @@
           thOPct = Math.max(0, Math.min(100, ((avgPwm - 1100) / 800) * 100));
         }
 
-        if(overviewOnly){timeline.push({sec,autoRelAlt,thO:thOPct,c1:r.C1??1000,c2:r.C2??1000,c3:r.C3??1000,c4:r.C4??1000});continue;}
         timeline.push({
           sec,
           kstStr: secToKstStr(sec),
@@ -517,8 +515,6 @@
         disarmSec = maxSec;
         disarmTrigger = '⚠️ 로그 끊김 (시동해제 미기록)';
       }
-
-      if(overviewOnly)return {sorties:mergedRawSorties.map((s,index)=>({index:index+1,takeoffSec:s.takeoffSec,landingSec:s.landingSec})),groundOnly,isLogCutoff,minSec,maxSec};
 
       const sorties = mergedRawSorties.map((s, idx) => {
         const nextTakeoff = mergedRawSorties[idx + 1]?.takeoffSec ?? Infinity;

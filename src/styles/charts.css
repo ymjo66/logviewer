@@ -11,6 +11,3 @@
 .overview-caption {font:12px Arial,sans-serif;text-align:center;color:#333;padding:12px 0 4px}
 #overviewRangeLabel {font-size:10px;float:right;color:#666}
 #uavPlotCard .plot-display-controls {color:#333;border-color:#ddd}
-
-#analysisMain.analysis-pending > :not(#selectedAnalysisStatus){display:none!important}
-.analysis-pending-route{visibility:hidden}

@@ -595,15 +595,26 @@
         const bounds=commonPlotBounds(group.min,group.max);if(!bounds)continue;
         for(const axisId of group.axes){axes[axisId].min??=bounds.min;axes[axisId].max??=bounds.max;}
       }
-      const shownRanges=new Set();
+      const shownRanges=new Set(),rangeLabels=new Map();
+      for(const [axisId,axis] of Object.entries(axes)){
+        const key=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
+        if(!rangeLabels.has(key))rangeLabels.set(key,[]);
+        rangeLabels.get(key).push(String(axis.title.text));
+      }
       for(const [axisId,axis] of Object.entries(axes)){
         const rangeKey=JSON.stringify([memberships.get(axisId),axis.min,axis.max]);
         if(shownRanges.has(rangeKey)){
           axis.display=false;axis.ticks.display=false;axis.title.text=String(axis.title.text).replace(/^모터 (\d+).*$/,'M$1').replace(/^([^.[\]]+)\./,'');
           axis.title.font={size:9};axis.title.padding=1;axis.grid.drawTicks=false;
-        }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;}
+        }else {shownRanges.add(rangeKey);axis.ticks.display=true;axis.ticks.font={family:'Arial',size:10};axis.ticks.padding=2;axis.title.padding=2;axis.title.text=sharedAxisLabels(rangeLabels.get(rangeKey));}
       }
       config.customAxes=axes;return config;
+    }
+
+    function sharedAxisLabels(labels){
+      const unique=[...new Set(labels)],lines=[''];
+      for(const label of unique){const last=lines.length-1;if(lines[last]&&lines[last].length+label.length+3>52&&lines.length<2)lines.push(label);else lines[last]+=(lines[last]?' · ':'')+label;}
+      return lines.length===1?lines[0]:lines;
     }
 
     function buildCustomFieldScales(fields, palette, limits = {}) {

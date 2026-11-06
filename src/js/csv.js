@@ -84,7 +84,7 @@ function setupCsvExport(logCard) {
         try{await queueLogTask(()=>streamNativeCsv(logs,mode(),Array.from(selected[mode()]),range,status));}finally{save.disabled=false;}
         return;
       }
-      const text=await buildLazySelectedCsv(logs,mode(),Array.from(selected[mode()]),range);
+      const text=buildSelectedCsv(logs,mode(),Array.from(selected[mode()]),range);
       const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8;'}));
       const link=document.createElement('a');link.href=url;
       link.download=logs.length===1?logs[0].fileName.replace(/\.[^.]+$/,'')+'_'+mode()+'.csv':'logviewer_'+mode()+'.csv';
@@ -106,5 +106,3 @@ function openCsvExport(requestedMode) {
   });
   document.getElementById('csvExportStatus').textContent='';dialog._refreshColumns();dialog.showModal();
 }
-
-async function buildLazySelectedCsv(logs,mode,keys,range){const parts=[];for(const log of logs){await ensureLogAnalysis(log);const part=buildSelectedCsv([log],mode,keys,range);const separator=part.indexOf('\r\n');parts.push(parts.length?(separator<0?'':part.slice(separator+2)):part);}return parts.filter(Boolean).join('\r\n');}

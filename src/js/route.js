@@ -320,7 +320,7 @@
       appState.logs.forEach(item => {
         const sorties = (item.analysis && item.analysis.sorties && item.analysis.sorties.length > 0)
           ? item.analysis.sorties
-          : [{ index: 1, logbookLine: item.logbookText || '미분석' }];
+          : [{ index: 1, logbookLine: item.analysis.logbookLine }];
         sorties.forEach(s => {
           if (includeName) {
             const sortieSuffix = sorties.length > 1 ? ` (${s.index}쏘티)` : '';
