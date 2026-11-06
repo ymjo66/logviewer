@@ -1,3 +1,26 @@
+    let logSelectionRevision=0,selectedAnalysisController=null,analysisUseSerial=0;
+    const DETAIL_CACHE_LOGS=3;
+    function analysisConfigKey(){return JSON.stringify([appState.config,appState.altSourceMode]);}
+    function trimDetailCache(protectedLog){
+      const reserved=new Set([protectedLog,appState.logs[appState.activeLogIndex],...appState.logs.filter(log=>log.analysisPins>0)].filter(Boolean));
+      const cached=appState.logs.filter(log=>log.analysis&&!reserved.has(log)).sort((a,b)=>(b.analysisUsed||0)-(a.analysisUsed||0));
+      for(const log of cached.slice(Math.max(0,DETAIL_CACHE_LOGS-reserved.size))){log.analysis=null;log.parsedLog.releaseRawBytes?.();}
+    }
+    async function ensureLogAnalysis(item,{signal,onProgress=()=>{}}={}){
+      const key=analysisConfigKey();if(item.analysis&&(item.analysisKey==null||item.analysisKey===key)){item.analysisUsed=++analysisUseSerial;return item.analysis;}
+      if(item.analysisPromise){try{await item.analysisPromise;}catch(error){if(error.name!=='AbortError')throw error;}if(signal?.aborted)throw Object.assign(Error('분석 취소'),{name:'AbortError'});if(item.analysis&&item.analysisKey===key)return item.analysis;}
+      item.analysisState='분석 중';item.analysisError='';
+      const task=(async()=>{await item.parsedLog.ensureLoaded?.();if(signal?.aborted)throw Object.assign(Error('분석 취소'),{name:'AbortError'});
+        const a=item.analysisKey===key&&item.parsedLog.nativeId?restoreNativeAnalysis(item.parsedLog.nativeId,JSON.parse(nativeCall('GetAnalysis',item.parsedLog.nativeId),nativeDecode)):item.parsedLog.nativeId?await analyzeNativeLog(item.parsedLog,appState.config,onProgress,signal):analyzeParsedLog(item.parsedLog,appState.config);
+        if(signal?.aborted||key!==analysisConfigKey())throw Object.assign(Error('분석 취소'),{name:'AbortError'});
+        a.timeline._packed?.backend.compact?.();item.analysis=a;item.analysisKey=key;item.analysisState='완료';item.analysisUsed=++analysisUseSerial;item.logbookText=a.logbookLine;item.overview={sorties:Array.from(a.sorties,s=>({index:s.index,takeoffSec:s.takeoffSec,landingSec:s.landingSec})),groundOnly:a.groundOnly,isLogCutoff:a.isLogCutoff};trimDetailCache(item);return a;})();
+      item.analysisPromise=task;try{return await task;}catch(error){item.analysisState=error.name==='AbortError'?'미분석':'실패';item.analysisError=error.message;throw error;}finally{if(item.analysisPromise===task)item.analysisPromise=null;if(appState.logs.includes(item))renderMultiLogManager();}
+    }
+    function showSelectedAnalysisState(item,pending){
+      const main=document.getElementById('analysisMain');if(!main)return;let panel=document.getElementById('selectedAnalysisStatus');if(!panel){panel=document.createElement('div');panel.id='selectedAnalysisStatus';panel.style.cssText='padding:24px;color:white;border:1px solid #596170;border-radius:6px';main.prepend(panel);}
+      main.classList.toggle('analysis-pending',pending);document.getElementById('routePane')?.classList.toggle('analysis-pending-route',pending);panel.hidden=!pending;panel.replaceChildren();
+      if(pending){const message=document.createElement('p');message.textContent=item.fileName+' · '+item.analysisState+(item.analysisError?' · '+item.analysisError:'');panel.append(message);if(item.analysisState==='실패'){const retry=document.createElement('button');retry.textContent='다시 분석';retry.onclick=()=>selectLogByIndex(appState.logs.indexOf(item));panel.append(retry);}const badge=document.getElementById('diagAlertCountBadge');if(badge){badge.textContent=item.analysisState;badge.className='px-1.5 py-0.2 rounded-full text-[10px] bg-slate-500/20 text-slate-300 mono-num';}}
+    }
     function renderMultiLogManager() {
       refreshLogComparison();
       const emptySec = document.getElementById('emptyUploadSection');
@@ -19,7 +42,7 @@
       clearBtn.classList.remove('hidden');
       clearBtn.classList.add('inline-flex');
 
-      const totalSortiesCount = appState.logs.reduce((acc, item) => acc + ((item.analysis && item.analysis.sorties) ? item.analysis.sorties.length : 1), 0);
+      const totalSortiesCount = appState.logs.reduce((acc, item) => acc + ((item.overview || item.analysis)?.sorties?.length || 0), 0);
       document.getElementById('attachedCountBadge').textContent = `총 ${appState.logs.length}개 파일 · 총 ${totalSortiesCount}쏘티`;
       document.getElementById('logbookPreviewTextarea').value = buildAllLogsCopyText();
 
@@ -28,9 +51,9 @@
 
       appState.logs.forEach((item, idx) => {
         const isSelected = idx === appState.activeLogIndex;
-        const a = item.analysis;
+        const a = item.analysis || {...item.overview,diagnostics:[],logbookLine:'미분석',maxRelAlt:0};
         const sCount = a.sorties ? a.sorties.length : 0;
-        const failCount = a.diagnostics.filter(d => d.status === 'FAIL').length;
+        const failCount = (a.diagnostics||[]).filter(d => d.status === 'FAIL').length;
         const warnCount = a.diagnostics.filter(d => d.status === 'WARN').length;
         const badgeClass = failCount > 0
           ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
@@ -42,7 +65,7 @@
 
         const sortieLinesHtml = a.groundOnly ? '<div class="text-slate-400">비행 미감지</div>' : (a.sorties || []).map(s =>
           sCount > 1
-            ? `<div class="text-sky-300 font-semibold"><span class="text-amber-300 mr-1">[${s.index}쏘티]</span>${s.logbookLine}</div>`
+            ? `<div class="text-sky-300 font-semibold"><span class="text-amber-300 mr-1">[${s.index}쏘티]</span>${s.logbookLine||'미분석'}</div>`
             : `<div class="text-sky-300 font-semibold">${s.logbookLine}</div>`
         ).join('');
 
@@ -56,8 +79,9 @@
             <span class="px-1.5 py-0.5 rounded text-[10px] font-bold mono-num ${isSelected ? 'bg-sky-500 text-white' : 'bg-slate-800 text-slate-400'}">#${idx + 1}</span>
             <span class="font-semibold text-white truncate max-w-[165px]" title="${item.fileName}">${item.fileName}</span>
             <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border mono-num ${sortieBadgeClass}">${sCount}쏘티</span>
-            ${a.isLogCutoff ? '<span class="px-1.5 py-0.2 rounded text-[10px] font-bold border mono-num bg-rose-500/20 text-rose-300 border-rose-500/40" title="시동 해제(DISARM) 없이 로그가 중간에 끊긴 파일입니다">⚠️ 로그끊김</span>' : ''}
-            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold border mono-num ${badgeClass}">${badgeLabel}</span>
+            <span class="text-[10px] text-slate-400" data-analysis-state>${item.analysisState||'미분석'}</span>
+            ${a.isLogCutoff ? '<span class="px-1.5 py-0.2 rounded text-[10px] font-bold border mono-num bg-rose-500/20 text-rose-300 border-rose-500/40" title="시동 해제 기록과 종료 시 고도·출력으로 판단한 기록 중단 의심입니다">⚠️ 종료 의심</span>' : ''}
+
           </div>
           <div class="flex items-center gap-3 mono-num">
             <div class="text-right leading-tight" title="1회 이착륙당 1쏘티 (이륙시각 착륙시각 :비행시간)">${sortieLinesHtml}</div>
@@ -72,14 +96,14 @@
           selectLogByIndex(idx);
         });
 
-        row.querySelector('[data-copy-single]').addEventListener('click', (e) => {
+        row.querySelector('[data-copy-single]').addEventListener('click', async (e) => {
           e.stopPropagation();
-          copyTextToClipboard(a.logbookLine, `${item.fileName} 비행시간(${a.logbookLine}) 복사 완료!`);
+          try{const a=await ensureLogAnalysis(item);copyTextToClipboard(a.logbookLine, `${item.fileName} 비행시간(${a.logbookLine}) 복사 완료!`);}catch(error){showToast('복사 실패: '+error.message);}
         });
 
         row.querySelector('[data-remove-log]').addEventListener('click', (e) => {
           e.stopPropagation();
-          cancelPlotRefresh();
+          selectedAnalysisController?.abort();logSelectionRevision++;cancelPlotRefresh();
           if(idx===appState.activeLogIndex){mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;}
           appState.logs[idx].parsedLog.releaseRawBytes?.();
           appState.logs[idx].parsedLog.dispose?.();
@@ -118,17 +142,20 @@
 
     function selectLogByIndex(idx) {
       const item=appState.logs[idx];if(!item)return Promise.resolve();
-      return queueLogTask(async()=>{const current=appState.logs.indexOf(item);if(current>=0)await activateLogByIndex(current);});
+      return activateLogByIndex(idx);
     }
 
     async function activateLogByIndex(idx) {
       cancelPlotRefresh();
       if (idx < 0 || idx >= appState.logs.length) return;
       stopPlayback();
-      const item=appState.logs[idx];
+      const item=appState.logs[idx],revision=++logSelectionRevision;selectedAnalysisController?.abort();selectedAnalysisController=new AbortController();const signal=selectedAnalysisController.signal;appState.activeLogIndex=idx;appState.analysis=null;appState.parsedLog=null;mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
+      item.analysisState=item.analysis&&item.analysisKey===analysisConfigKey()?'완료':'분석 중';renderMultiLogManager();showSelectedAnalysisState(item,true);
+      try{await ensureLogAnalysis(item,{signal});}catch(error){if(revision===logSelectionRevision){showSelectedAnalysisState(item,true);if(error.name!=='AbortError')showToast(item.fileName+' — '+error.message);}return;}if(revision!==logSelectionRevision||!appState.logs.includes(item))return;showSelectedAnalysisState(item,false);
       // Chart datasets can retain views of the previous raw store. Those views
       // remain valid, but only the newly selected store is resident in memory.
       try{await item.parsedLog.ensureLoaded?.();}catch(error){showToast(`${item.fileName} — ${error.message}`);return;}
+      if(revision!==logSelectionRevision||!appState.logs.includes(item))return;idx=appState.logs.indexOf(item);
       for(const log of appState.logs)if(log!==item)log.parsedLog.releaseRawBytes?.();
       appState.activeLogIndex = idx;
       appState.mapView = createMapView(appState.mapView?.mode||'2d');
@@ -786,12 +813,11 @@
       };
       const parsedLog=file.nativeId?await importNativeFile(file,progress):await parseDataFlashFile(file,progress);
       const label=document.getElementById('uploadProgressText');
-      if(label)label.textContent=`${file.name} · 전체 데이터 분석 중`;
+      if(label)label.textContent=`${file.name} · 비행횟수·종료 상태 확인 중`;
       await new Promise(resolve=>setTimeout(resolve,0));
       try{
-        const analysis=parsedLog.nativeId?await analyzeNativeLog(parsedLog,appState.config,progress):analyzeParsedLog(parsedLog,appState.config);
-        analysis.timeline._packed?.backend.compact?.();
-        return {fileName:file.name,parsedLog,analysis};
+        const cfg={...appState.config,__overviewOnly:true};const overview=parsedLog.nativeId?await analyzeNativeLog(parsedLog,cfg,progress):analyzeParsedLog(parsedLog,cfg);
+        return {fileName:file.name,parsedLog,overview,analysis:null,analysisState:'미분석'};
       }catch(error){try{parsedLog.dispose?.();}catch{}throw error;}
     }
 
@@ -811,7 +837,7 @@
       const task=uploadQueue.then(async()=>{
         document.body?.setAttribute('aria-busy','true');
         const main=document.getElementById('dropZone'),nav=document.getElementById('topAnalysisTools');
-        if(main)main.inert=true;if(nav)nav.inert=true;
+
         try{return await action();}finally{if(main)main.inert=false;if(nav)nav.inert=false;document.body?.removeAttribute('aria-busy');}
       });
       uploadQueue=task.catch(error=>{console.error(error);showToast(`로그 처리 실패: ${error.message||error}`);});
@@ -823,14 +849,15 @@
     }
 
     async function reanalyzeAllLogs(){
+      selectedAnalysisController?.abort();
       cancelPlotRefresh();
       for(const item of appState.logs){
         await item.parsedLog.ensureLoaded?.();
-        try{item.analysis=item.parsedLog.nativeId?await analyzeNativeLog(item.parsedLog,appState.config):analyzeParsedLog(item.parsedLog,appState.config);item.analysis.timeline._packed?.backend.compact?.();}
+        try{item.analysis=null;item.analysisKey=null;item.logbookText=null;item.analysisState='미분석';const cfg={...appState.config,__overviewOnly:true};item.overview=item.parsedLog.nativeId?await analyzeNativeLog(item.parsedLog,cfg):analyzeParsedLog(item.parsedLog,cfg);}
         finally{if(item!==appState.logs[appState.activeLogIndex])item.parsedLog.releaseRawBytes?.();}
         await new Promise(resolve=>setTimeout(resolve,0));
       }
-      if(appState.logs.length)await activateLogByIndex(Math.max(0,appState.activeLogIndex));
+      if(appState.activeLogIndex>=0)await activateLogByIndex(appState.activeLogIndex);else renderMultiLogManager();
     }
 
     function renderUploadReport(report) {
@@ -903,7 +930,7 @@
       appState.logs.push(...newlyParsed);
       sortLogsByFileName();
       const firstNewIdx = Math.max(0, appState.logs.indexOf(newlyParsed[0]));
-      await activateLogByIndex(firstNewIdx);
+      renderMultiLogManager();if(appState.activeLogIndex<0)showSelectedAnalysisState({fileName:'로그를 선택하세요',analysisState:'미분석'},true);
       showToast(`선택 ${files.length}개 · 성공 ${newlyParsed.length}개 · 실패 ${failures.length}개${failures.length?' — 불러오기 결과에서 파일별 원인을 확인하세요.':''}`);
     }
 
@@ -951,12 +978,13 @@
     // Copies strictly:
     // 13:35:52 13:46:57 :00:11:05
     // (one line per attached log)
-    function copyFlightLogbookSummary() {
+    async function copyFlightLogbookSummary() {
       if (appState.logs.length === 0) {
         showToast('먼저 .bin 또는 .log 파일을 첨부해 주세요.');
         return;
       }
-      const totalSorties = appState.logs.reduce((acc, item) => acc + ((item.analysis && item.analysis.sorties) ? item.analysis.sorties.length : 1), 0);
+      const totalSorties = appState.logs.reduce((acc, item) => acc + ((item.overview||item.analysis)?.sorties?.length||0), 0);
+      try{for(const item of appState.logs)await ensureLogAnalysis(item);}catch(error){showToast('복사 실패: '+error.message);return;}
       const text = buildAllLogsCopyText();
       copyTextToClipboard(text, `총 ${appState.logs.length}개 파일 (${totalSorties}쏘티)의 [이륙 착륙 :비행시간]이 복사되었습니다!`);
     }
@@ -970,7 +998,7 @@
       document.getElementById('btnSampleGps').addEventListener('click', () => handleTopViewSwitch('gps'));
 
       document.getElementById('btnClearAllLogs').addEventListener('click', () => {
-        cancelPlotRefresh();
+        selectedAnalysisController?.abort();logSelectionRevision++;cancelPlotRefresh();
         stopPlayback();
         mainChart?.destroy();overviewChart?.destroy();mainChart=null;overviewChart=null;
         for(const item of appState.logs){item.parsedLog.releaseRawBytes?.();item.parsedLog.dispose?.();}

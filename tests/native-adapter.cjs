@@ -20,6 +20,8 @@ const plain=v=>JSON.parse(JSON.stringify(v));
   const input=fs.readFileSync(process.argv.length>2?file:'tests/fixtures/'+file);context.text=input.toString('utf8');context.binary=new Uint8Array(input);raw=vm.runInContext(/\.bin$/i.test(file)?'parseDataFlashBinary(binary)':'parseDataFlashTextLog(text)',context);context.raw=raw;
   const standard=vm.runInContext('analyzeParsedLog(raw,appState.config)',context);
   context.meta={nativeId:file,fileName:file,byteLength:100,fmtList:raw.fmtList,tables:Object.fromEntries(Object.entries(raw.tables).map(([name,rows])=>[name,rows.length])),rawCounts:raw.rawCounts,totalPackets:raw.totalPackets};
+  const overview=vm.runInContext('analyzeParsedLog(makeNativeParsed(meta),{...appState.config,__overviewOnly:true})',context);
+  assert.deepEqual(plain(overview.sorties),plain(standard.sorties.map(({index,takeoffSec,landingSec})=>({index,takeoffSec,landingSec}))),'overview sortie times match full analysis');assert.equal(overview.isLogCutoff,standard.isLogCutoff);assert.equal(overview.groundOnly,standard.groundOnly);assert.equal(overview.timeline,undefined,'overview exposes no detailed timeline or diagnostics');
   const native=vm.runInContext('analyzeParsedLog(makeNativeParsed(meta),appState.config)',context);context.native=native;
   assert.equal(native.timeline._packed.backend.nativeMutable,true);
   const metadata=await vm.runInContext('storeNativeAnalysis(meta.nativeId,native)',context);context.stored=metadata;

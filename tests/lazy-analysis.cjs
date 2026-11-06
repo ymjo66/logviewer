@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-3.0-only
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync('index.html','utf8'),scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
+const context=vm.createContext({console,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,TextDecoder,Uint8Array,DataView,ArrayBuffer,Blob,window:{addEventListener(){},scrollTo(){}},document:{getElementById(){return null;}},Chart:{register(){}}});
+vm.runInContext(scripts.find(s=>s.includes('function detectBatteryCells')),context);vm.runInContext(scripts.find(s=>s.includes('function analyzeParsedLog')),context);vm.runInContext(fs.readFileSync('src/js/csv.js','utf8'),context);
+let calls=0;const counts=new Map();const analysis=name=>({sorties:[{index:1,takeoffSec:1,landingSec:5,durationSec:4,logbookLine:name+' flight'}],groundOnly:false,isLogCutoff:false,logbookLine:name+' flight',timeline:[{sec:1,volt:24}],diagnostics:[{status:'WARN'}]});
+context.fakeNative=async(parsed,cfg,progress,signal)=>{calls++;counts.set(parsed.name,(counts.get(parsed.name)||0)+1);await new Promise(resolve=>setTimeout(resolve,parsed.delay||0));return analysis(parsed.name);};
+vm.runInContext('analyzeNativeLog=fakeNative;cancelPlotRefresh=()=>{};stopPlayback=()=>{};renderMultiLogManager=()=>{};showSelectedAnalysisState=()=>{};renderAllViews=()=>{};switchMainTab=()=>{};createMapView=()=>({});mainChart=null;overviewChart=null;',context);
+const log=(name,delay=0)=>({fileName:name,analysis:null,analysisState:'미분석',overview:{sorties:[{}]},parsedLog:{nativeId:name,name,delay,async ensureLoaded(){},releaseRawBytes(){}}});
+(async()=>{
+ const slow=log('slow',25),fast=log('fast',1);context.logs=[slow,fast];vm.runInContext('appState.logs=logs;appState.activeLogIndex=-1',context);
+ await vm.runInContext('Promise.all([selectLogByIndex(0),selectLogByIndex(1)])',context);assert.equal(vm.runInContext('appState.analysis.logbookLine',context),'fast flight');assert.equal(slow.analysis,null,'late old result rejected');assert.equal(slow.analysisState,'미분석');assert.equal(fast.analysisState,'완료');
+ context.fast=fast;await vm.runInContext('ensureLogAnalysis(fast)',context);assert.equal(counts.get('fast'),1,'completed analysis reused');
+ const exports=Array.from({length:6},(_,i)=>log('export-'+i));context.exports=exports;vm.runInContext('appState.logs=exports;appState.activeLogIndex=-1',context);
+ const csv=await vm.runInContext('buildLazySelectedCsv(exports,"summary",["file","duration"],null)',context);assert.equal(csv.split('\r\n').length,7);for(const item of exports){assert.ok(csv.includes(item.fileName));assert.equal(item.analysisState,'완료');assert.equal(item.logbookText,item.fileName+' flight');}assert.ok(exports.filter(log=>log.analysis).length<=3,'bounded detailed analysis cache');
+ context.restoreFake=id=>analysis(id);vm.runInContext("restoreNativeAnalysis=(id)=>restoreFake(id);nativeCall=()=> '{}';nativeDecode=(key,value)=>value;copyTextToClipboard=text=>{globalThis.copiedSummary=text;};",context);await vm.runInContext('copyFlightLogbookSummary()',context);const copied=vm.runInContext('copiedSummary',context);for(const item of exports)assert.ok(copied.includes(item.fileName+' flight'),'copy includes every evicted or unanalyzed log');
+ const broken=log('broken');broken.parsedLog.ensureLoaded=async()=>{throw Error('read failed');};context.broken=broken;await assert.rejects(vm.runInContext('ensureLogAnalysis(broken)',context),/read failed/);assert.equal(broken.analysisState,'실패');assert.equal(broken.analysis,null);
+ console.log('PASS: lazy selection cancellation, stale result exclusion, result reuse, bounded cache, unanalyzed batch CSV and explicit failure');
+})().catch(error=>{console.error(error);process.exitCode=1;});

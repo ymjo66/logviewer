@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node scripts/build.cjs",
     "dev": "node scripts/dev.cjs",
-    "test": "node scripts/build.cjs && node tests/standalone.cjs && node tests/export-battery.cjs && node tests/large-parser.cjs && node tests/multi-upload.cjs && node tests/comparison.cjs && node tests/native-adapter.cjs && node tests/chart-interaction.cjs",
+    "test": "node scripts/build.cjs && node tests/standalone.cjs && node tests/export-battery.cjs && node tests/large-parser.cjs && node tests/multi-upload.cjs && node tests/comparison.cjs && node tests/native-adapter.cjs && node tests/chart-interaction.cjs && node tests/lazy-analysis.cjs",
     "build:exe": "node scripts/build-exe.cjs"
   },
   "engines": {

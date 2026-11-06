@@ -148,7 +148,7 @@ function drawLogComparison(){return queueLogTask(async()=>{
     const keys=Array.from(document.querySelectorAll('#comparisonMetricChoices input:checked'),input=>input.value);
     keys.push(...comparisonFieldChosen);const selected=appState.logs.filter(log=>comparisonChosen.has(log));
     const result={datasets:[],skipped:[],axes:{}};
-    for(const log of selected){status.textContent=`비교 데이터 조회 중 · ${log.fileName}`;await new Promise(resolve=>setTimeout(resolve,0));if(comparisonFieldChosen.size)await log.parsedLog.ensureLoaded?.();try{const part=buildLogComparison([log],keys,document.getElementById('comparisonAlignment').value);result.datasets.push(...part.datasets);result.skipped.push(...part.skipped);Object.assign(result.axes,part.axes);}finally{if(log!==appState.logs[appState.activeLogIndex])log.parsedLog.releaseRawBytes?.();}}
+    for(const log of selected){if(typeof ensureLogAnalysis==='function')await ensureLogAnalysis(log);status.textContent=`비교 데이터 조회 중 · ${log.fileName}`;await new Promise(resolve=>setTimeout(resolve,0));if(comparisonFieldChosen.size)await log.parsedLog.ensureLoaded?.();try{const part=buildLogComparison([log],keys,document.getElementById('comparisonAlignment').value);result.datasets.push(...part.datasets);result.skipped.push(...part.skipped);Object.assign(result.axes,part.axes);}finally{if(log!==appState.logs[appState.activeLogIndex])log.parsedLog.releaseRawBytes?.();}}
     const metricCount=new Set(result.datasets.map(dataset=>dataset.metricKey)).size;
     synchronizeComparisonAxes(result);
     clearLogComparison();status.textContent=`${new Set(result.datasets.map(dataset=>dataset.logIndex)).size}개 로그 · ${metricCount}개 항목 · ${result.datasets.length}개 곡선${result.skipped.length?' · 제외: '+result.skipped.join(' / '):''}`;

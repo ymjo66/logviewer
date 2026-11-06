@@ -151,18 +151,21 @@ async function streamNativeCsv(logs,mode,keys,range,status){
   try{
     nativeCall('AppendCsvExport',token,columns.map(column=>csvCell(column[1])).join(','));let buffer='',count=0;
     for(const log of logs){
+      log.analysisPins=(log.analysisPins||0)+1;try{
+      if(typeof ensureLogAnalysis==='function')await ensureLogAnalysis(log,{onProgress:(fraction,phase)=>{status.textContent=log.fileName+' · '+phase;}});
       const rows=mode==='summary'?(log.analysis.sorties.length?log.analysis.sorties:[null]):log.analysis.timeline;
       for(const row of rows){
         if(mode==='telemetry'&&range&&(row.sec<range.minSec||row.sec>range.maxSec))continue;
         buffer+='\r\n'+columns.map(column=>csvCell(column[2](log,row))).join(',');count++;
         if(buffer.length>=128*1024){nativeCall('AppendCsvExport',token,buffer);buffer='';status.textContent=`CSV 저장 중 · ${count.toLocaleString()}행`;await new Promise(resolve=>setTimeout(resolve,0));}
       }
+      }finally{log.analysisPins--;if(typeof trimDetailCache==='function')trimDetailCache(appState.logs[appState.activeLogIndex]);}
     }
     if(buffer)nativeCall('AppendCsvExport',token,buffer);nativeCall('FinishCsvExport',token,true);status.textContent=`CSV 저장 완료 · ${count.toLocaleString()}행`;
   }catch(error){nativeCall('FinishCsvExport',token,false);throw error;}
 }
-async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
-  const analysisStarted=nativeProfileNow();
+async function analyzeNativeLog(parsed,cfg,onProgress=()=>{},signal){
+  const analysisStarted=nativeProfileNow(),analysisStore=nativeCall('BeginAnalysis',parsed.nativeId);
   const source=[
     'const window=self;const document={};const Chart={register(){}};',
     `const __nativeDiskEndpoint=${JSON.stringify(nativeCall('Endpoint'))};`,
@@ -173,11 +176,12 @@ async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
       const {metadata,cfg,altSourceMode,timeMode,catalog}=event.data;nativeProfileEnabled=!!metadata.profileEnabled;
       appState.config=cfg;appState.altSourceMode=altSourceMode;appState.timeMode=timeMode;
       const parsed=makeNativeParsed(metadata),profile={stages:{},analysisPhases:[],rpc:nativeRpcStats};
-      store=nativeCall('BeginAnalysis',parsed.nativeId);parsed.nativeAnalysisStore=store;
+      store=event.data.analysisStore;parsed.nativeAnalysisStore=store;
       let phaseStart=nativeProfileNow(),lastRpc=0;
       if(nativeProfileEnabled)parsed.onAnalysisPhase=name=>{const now=nativeProfileNow(),rpc=Object.values(nativeRpcStats).reduce((sum,item)=>sum+item.milliseconds,0);profile.analysisPhases.push({name,milliseconds:now-phaseStart,rpcMilliseconds:rpc-lastRpc});phaseStart=now;lastRpc=rpc;};
       self.postMessage({type:'progress',fraction:0,phase:'전체 패킷 분석 중'});
       let started=nativeProfileNow();const analysis=analyzeParsedLog(parsed,cfg);profile.stages.analysis=nativeProfileNow()-started;
+      if(cfg.__overviewOnly){const catalog=JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);nativeCall('AbortAnalysis',store);self.postMessage({type:'done',result:{overview:analysis,catalog,profile}});return;}
       started=nativeProfileNow();analysis.timeline._packed?.backend.compact();profile.stages.timelineFlush=nativeProfileNow()-started;
       self.postMessage({type:'progress',fraction:0,phase:'전체 필드·인스턴스 목록 확인'});
       started=nativeProfileNow();const fieldCatalog=catalog||JSON.parse(nativeCall('GetFieldCatalog',parsed.nativeId),nativeDecode);profile.stages.fieldCatalog=nativeProfileNow()-started;
@@ -189,12 +193,15 @@ async function analyzeNativeLog(parsed,cfg,onProgress=()=>{}){
   ].join('\n');
   const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'})),worker=new Worker(url);URL.revokeObjectURL(url);
   const result=await new Promise((resolve,reject)=>{
-    const finish=()=>worker.terminate();
+    const abort=()=>{worker.terminate();try{nativeCall('AbortAnalysis',analysisStore);}catch{}const error=Error('분석이 취소되었습니다.');error.name='AbortError';reject(error);};
+    const finish=()=>{worker.terminate();signal?.removeEventListener('abort',abort);};
+    if(signal?.aborted){abort();return;}signal?.addEventListener('abort',abort,{once:true});
     worker.onmessage=e=>{if(e.data.type==='progress'){onProgress(e.data.fraction,e.data.phase);return;}finish();if(e.data.type==='error')reject(Error(e.data.message));else resolve(e.data.result);};
     worker.onerror=e=>{finish();reject(Error(e.message||'백그라운드 분석 오류'));};
-    worker.postMessage({metadata:parsed.nativeMetadata,cfg:{...cfg},altSourceMode:appState.altSourceMode,timeMode:appState.timeMode,catalog:parsed._fieldCatalog});
+    worker.postMessage({analysisStore,metadata:parsed.nativeMetadata,cfg:{...cfg},altSourceMode:appState.altSourceMode,timeMode:appState.timeMode,catalog:parsed._fieldCatalog});
   });
   parsed._fieldCatalog=result.catalog;
+  if(result.overview){if(parsed.nativeMetadata.profileEnabled){parsed.overviewProfile={phase:'overview',fileName:parsed.fileName,indexMilliseconds:parsed.nativeMetadata.indexMilliseconds,overviewWallMilliseconds:nativeProfileNow()-analysisStarted,...result.profile};window.chrome.webview.postMessage(JSON.stringify({action:'disk.profile',profile:parsed.overviewProfile}));}return result.overview;}
   if(parsed.nativeMetadata.profileEnabled){parsed.loadProfile={fileName:parsed.fileName,bytes:parsed.byteLength,packets:parsed.totalPackets,indexMilliseconds:parsed.nativeMetadata.indexMilliseconds,analysisWallMilliseconds:nativeProfileNow()-analysisStarted,...result.profile};window.chrome.webview.postMessage(JSON.stringify({action:'disk.profile',profile:parsed.loadProfile}));}
   clearNativePages(parsed.nativeId);return restoreNativeAnalysis(parsed.nativeId,result);
 }
